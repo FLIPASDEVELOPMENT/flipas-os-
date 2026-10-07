@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: flipas
+      POSTGRES_DB: flipas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flipas -d flipas"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  migrate:
+    image: flipas-os-tools
+    build:
+      context: .
+      target: tools
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with db hostname}
+    command: npm run db:migrate
+    depends_on:
+      db:
+        condition: service_healthy
+  app:
+    image: flipas-os
+    build:
+      context: .
+      target: runtime
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with db hostname}
+      APP_ORIGIN: ${APP_ORIGIN:?Set APP_ORIGIN}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+volumes:
+  postgres_data:

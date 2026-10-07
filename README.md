@@ -1,0 +1,142 @@
+# FLIPAS OS
+
+AI-Powered Remodeling Operations for Flipas Home Remodeling, Florida.
+
+Phase 1 implements secure login, six roles, scoped customer/lead/opportunity access, customer records, lead create/edit/assignment/scoring/notes, opportunity value/next-action editing, an audited Kanban pipeline and a database-backed dashboard. Estimates, Projects and AI Center routes explicitly show their Phase 2 status; no real AI or communication actions execute.
+
+## Architecture
+
+Next.js 16.4 App Router + TypeScript + Tailwind 4, PostgreSQL 17 and Prisma 7.10 with the PostgreSQL driver adapter. Server actions validate with Zod and call transactional services. Sessions are opaque, database-backed, hashed, expiring and revocable. Passwords use salted scrypt. Login throttling is persistent across application instances. Financial foundations use decimal.js and Decimal database columns.
+
+Read [architecture](docs/ARCHITECTURE.md), [data model](docs/DATA_MODEL.md) and [roadmap](docs/ROADMAP.md). Source lives in `src/app`, `src/components`, `src/domain`, `src/server`, `src/ai`; schema/migrations/provisioning live in `prisma`; repeatable tooling lives in `scripts`.
+
+## Local development
+
+Requires Node.js 24, npm, Docker and Docker Compose. Use the existing isolated checkout; no worktree is needed.
+
+```sh
+cd /workspace/flipas-os-
+npm run env:local # creates a random local database password; preserves existing .env
+npm ci
+npm run db:generate
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --wait db
+# Wait until the database reports healthy:
+docker compose exec db pg_isready -U flipas -d flipas
+npm run db:migrate
+```
+
+`.env` is ignored. For development its database URL uses `localhost`; its password must match `POSTGRES_PASSWORD`. `APP_ORIGIN=http://localhost:3000` authorizes browser mutations from that exact origin. The committed .env.example has blank credential fields. Never commit your generated .env.
+
+Provision the initial owner without storing a password in source or command history:
+
+```sh
+export USER_EMAIL='owner@your-company.com'
+export USER_NAME='Business Owner'
+export USER_ROLE='OWNER'
+read -r -s -p 'New password (12+ characters): ' USER_PASSWORD
+printf '\n'
+export USER_PASSWORD
+npm run user:create
+unset USER_PASSWORD
+npm run dev
+```
+
+Open the app on port 3000 in your own local environment. The cloud onboarding UI does not provide a localhost preview. Provision additional users using the same CLI with their role. Duplicate email provisioning fails and never overwrites an existing account. Keep CLI/database access restricted to administrators. Password reset and MFA/SSO are not implemented in Phase 1.
+
+Optional development fixtures:
+
+```sh
+ALLOW_DEMO_SEED=true npm run db:seed
+```
+
+Seed is idempotent, refuses `NODE_ENV=production`, requires an existing owner and labels the customer/service/activity as development/demo. It creates no default credentials. The production UI has no random metrics.
+
+## Validation
+
+```sh
+npm run lint
+npm run typecheck
+npm test
+# The following commands need DATABASE_URL in the process environment:
+set -a
+. ./.env
+set +a
+npm run test:integration
+npm run build
+npm start
+# In another terminal with the same DATABASE_URL:
+npm run test:smoke
+```
+
+Integration tests use unique fixtures and remove only their own records. HTTP smoke creates a temporary owner, tests real login, cookie security, authenticated pages and disabled-user revocation, then removes its fixtures. Run it against a production-mode app (`npm start`), with `APP_ORIGIN` matching `SMOKE_BASE_URL` (default `http://localhost:3000`). Do not target a customer production database for tests.
+
+`npm start` serves the standalone build; build copies static assets into it. Production-mode cookies are Secure: a deployed application needs HTTPS. The HTTP test supplies cookies explicitly for internal loopback verification.
+
+## Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string; protect credentials, URL-encode password characters. |
+| `POSTGRES_PASSWORD` | Compose database password; must match the URL. |
+| `APP_ORIGIN` | Exact public origin, including scheme and optional port; required in production. |
+| `USER_EMAIL`, `USER_NAME`, `USER_ROLE`, `USER_PASSWORD` | Only used by administrator account provisioning. |
+| `ALLOW_DEMO_SEED` | Explicit development seed opt-in. |
+| `SMOKE_BASE_URL` | Optional test target; defaults to loopback port 3000. |
+
+No AI credentials are required for Phase 1.
+
+## Migrations and restricted networks
+
+`202610070001_initial` creates the relational schema. `202610070002_integrity` adds database checks for score, budgets, probability and pricing bounds.
+
+`db:generate` and `db:migrate` use official Prisma npm-packaged generator and WASM schema engine, with package versions pinned together. This avoids the CLI's native binary download requirement in restricted cloud environments. npm integrity and TLS verification remain enabled. Migration execution uses Prisma's migration history and locking, rather than a custom SQL ledger. These internal interfaces are version-sensitive: upgrade them together and rerun database and repeatability tests.
+
+For future migrations, standard Prisma CLI `npx prisma migrate dev --name your_change` can be used locally; it needs `binaries.prisma.sh`. Commit migration SQL and apply it with `npm run db:migrate`. Do not use `db push` against production. Do not regenerate the initial migration after it is applied; `scripts/migrate.ts --initial` is only a one-time project bootstrap helper. Review custom database checks when generating subsequent migrations.
+
+## Docker deployment on Linux
+
+1. Copy `.env.example` to `.env` if absent, then securely configure:
+   - a strong unique `POSTGRES_PASSWORD`;
+   - `DATABASE_URL=postgresql://flipas:<URL-encoded-password>@db:5432/flipas`;
+   - `APP_ORIGIN=https://os.your-company.com`.
+2. Build and start:
+
+```sh
+docker compose build
+docker compose up -d
+docker compose ps
+```
+
+The one-shot `migrate` service waits for PostgreSQL health and applies pending migrations before the app starts. Data persists in `postgres_data`. The production database has no published port; the app is bound only to host loopback port 3000. Configure your host reverse proxy for TLS, preserve the public Host/Origin, forward to loopback port 3000, and place Cloudflare in front with Full (strict) TLS. If the reverse proxy runs in a separate container, connect it to the app network and adapt ports accordingly.
+
+Provision the owner using the tools image, without putting the password in the invocation:
+
+```sh
+export USER_EMAIL='owner@your-company.com'
+export USER_NAME='Business Owner'
+export USER_ROLE='OWNER'
+read -r -s -p 'New password (12+ characters): ' USER_PASSWORD
+printf '\n'
+export USER_PASSWORD
+docker compose run --rm -e USER_EMAIL -e USER_NAME -e USER_ROLE -e USER_PASSWORD migrate npm run user:create
+unset USER_PASSWORD
+```
+
+For upgrades, back up first, build new images and rerun `docker compose up -d --force-recreate migrate app`. Do not remove database volumes. Before customer production use, configure off-host PostgreSQL backups, test restore, monitoring, retention and MFA/SSO policy. Publication of the Codex environment is separate from application deployment.
+
+## Phase 2 and business decisions
+
+Phase 2 adds database pricing management, estimate snapshots/overrides, approvals, delivery, projects/tasks and AI providers. Phase 1 does not automatically create a project when a card reaches WON.
+
+Owner decisions: confirm Sales visibility/assignment rules (Sales only sees assigned records), intake-lead creation for Sales-created customers, acceptable margin/rounding policy, contract prerequisites for WON, communications consent, retention and backup recovery objectives. Pricing calculations are tested foundations, not an approved production quoting policy.
+
+### Cloud proxy build
+
+When the cloud machine supplies `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS`, use the optional helper to pass the CA as a transient BuildKit secret and resolve the proxy hostname using the host resolver:
+
+```sh
+DOCKER_CONFIG=/tmp/flipas-docker python3 scripts/cloud-build.py
+DOCKER_CONFIG=/tmp/flipas-docker python3 scripts/cloud-build.py --target tools --tag flipas-os-tools
+```
+
+TLS and npm package integrity remain enabled. The proxy CA is not copied into the production image. Standard Linux hosts without this proxy can use `docker compose build` directly.

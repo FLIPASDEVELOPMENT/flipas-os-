@@ -1,0 +1,347 @@
+generator client {
+ provider = "prisma-client"
+ output = "../src/generated/prisma"
+}
+datasource db {
+ provider = "postgresql"
+}
+enum Role {
+ OWNER
+ ADMIN
+ SALES
+ PROJECT_MANAGER
+ CREW
+ CUSTOMER
+}
+enum LeadSource {
+ WEBSITE
+ INSTAGRAM
+ FACEBOOK
+ GOOGLE
+ REFERRAL
+ HOME_SHOW
+ HOME_DEPOT
+ THUMBTACK
+ REALTOR
+ INVESTOR
+ REPEAT_CUSTOMER
+ OTHER
+}
+enum LeadStatus {
+ NEW
+ CONTACTED
+ QUALIFIED
+ UNQUALIFIED
+ CONVERTED
+}
+enum Stage {
+ NEW
+ CONTACTED
+ QUALIFYING
+ SITE_VISIT_SCHEDULED
+ ESTIMATE_IN_PROGRESS
+ ESTIMATE_SENT
+ FOLLOW_UP
+ NEGOTIATION
+ WON
+ LOST
+}
+enum ProjectStatus {
+ PRE_CONSTRUCTION
+ MATERIAL_ORDERING
+ SCHEDULED
+ IN_PROGRESS
+ PUNCH_LIST
+ COMPLETED
+ CANCELLED
+}
+enum Risk {
+ LOW
+ MEDIUM
+ HIGH
+}
+enum ActionStatus {
+ PROPOSED
+ AWAITING_APPROVAL
+ APPROVED
+ REJECTED
+ EXECUTED
+ FAILED
+}
+enum Unit {
+ EACH
+ SQFT
+ LINEAR_FT
+ HOUR
+ DAY
+ FLAT
+}
+model User {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ email String @unique
+ name String
+ passwordHash String
+ role Role @default(SALES)
+ active Boolean @default(true)
+ sessions Session[]
+ leads Lead[]
+ opportunities Opportunity[]
+ activities Activity[]
+ projects Project[]
+ overrides EstimateLineItem[]
+ approvals ApprovalRequest[]
+}
+model Session {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ tokenHash String @unique
+ userId String
+ user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ expiresAt DateTime
+ @@index([expiresAt])
+}
+model LoginAttempt {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ key String @unique
+ count Int @default(0)
+ windowStart DateTime @default(now())
+}
+model Customer {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ firstName String
+ lastName String
+ email String?
+ phone String?
+ address String?
+ city String?
+ state String @default("FL")
+ zip String?
+ notes String?
+ leads Lead[]
+ opportunities Opportunity[]
+ activities Activity[]
+ estimates Estimate[]
+ projects Project[]
+ @@index([lastName, firstName])
+}
+model Lead {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ customerId String
+ customer Customer @relation(fields: [customerId], references: [id])
+ source LeadSource
+ serviceType String
+ description String?
+ status LeadStatus @default(NEW)
+ leadScore Int @default(0)
+ budgetMin Decimal? @db.Decimal(14,2)
+ budgetMax Decimal? @db.Decimal(14,2)
+ desiredStartDate DateTime?
+ assignedToId String?
+ assignedTo User? @relation(fields: [assignedToId], references: [id])
+ opportunity Opportunity?
+ activities Activity[]
+ @@index([assignedToId, status])
+}
+model Opportunity {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ customerId String
+ customer Customer @relation(fields: [customerId], references: [id])
+ leadId String @unique
+ lead Lead @relation(fields: [leadId], references: [id])
+ stage Stage @default(NEW)
+ estimatedValue Decimal? @db.Decimal(14,2)
+ probability Int @default(0)
+ nextAction String?
+ nextActionDate DateTime?
+ ownerId String
+ owner User @relation(fields: [ownerId], references: [id])
+ activities Activity[]
+ estimates Estimate[]
+ project Project?
+ @@index([ownerId, stage])
+}
+model Activity {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ type String
+ message String
+ actorId String?
+ actor User? @relation(fields: [actorId], references: [id])
+ customerId String?
+ customer Customer? @relation(fields: [customerId], references: [id])
+ leadId String?
+ lead Lead? @relation(fields: [leadId], references: [id])
+ opportunityId String?
+ opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+ metadata Json?
+ @@index([customerId, createdAt])
+ @@index([leadId, createdAt])
+}
+model ServiceCategory {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ name String @unique
+ items ServiceItem[]
+}
+model ServiceItem {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ categoryId String
+ category ServiceCategory @relation(fields: [categoryId], references: [id])
+ name String
+ description String?
+ unit Unit
+ materialCost Decimal @db.Decimal(14,2)
+ laborCost Decimal @db.Decimal(14,2)
+ subcontractorCost Decimal @db.Decimal(14,2)
+ overheadAllocation Decimal @db.Decimal(14,2)
+ defaultMarkup Decimal @db.Decimal(7,4)
+ minimumMargin Decimal @db.Decimal(7,4)
+ active Boolean @default(true)
+ lines EstimateLineItem[]
+}
+model Estimate {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ customerId String
+ customer Customer @relation(fields: [customerId], references: [id])
+ opportunityId String?
+ opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+ status String @default("DRAFT")
+ directCost Decimal @db.Decimal(14,2)
+ sellingPrice Decimal @db.Decimal(14,2)
+ grossProfit Decimal @db.Decimal(14,2)
+ grossMargin Decimal @db.Decimal(7,4)
+ sections EstimateSection[]
+ projects Project[]
+}
+model EstimateSection {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ estimateId String
+ estimate Estimate @relation(fields: [estimateId], references: [id])
+ name String
+ position Int
+ lines EstimateLineItem[]
+}
+model EstimateLineItem {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ sectionId String
+ section EstimateSection @relation(fields: [sectionId], references: [id])
+ serviceItemId String?
+ serviceItem ServiceItem? @relation(fields: [serviceItemId], references: [id])
+ name String
+ unit Unit
+ quantity Decimal @db.Decimal(12,3)
+ materialCost Decimal @db.Decimal(14,2)
+ laborCost Decimal @db.Decimal(14,2)
+ subcontractorCost Decimal @db.Decimal(14,2)
+ overheadAllocation Decimal @db.Decimal(14,2)
+ markup Decimal @db.Decimal(7,4)
+ minimumMargin Decimal @db.Decimal(7,4)
+ calculatedPrice Decimal @db.Decimal(14,2)
+ sellingPrice Decimal @db.Decimal(14,2)
+ overrideReason String?
+ overriddenById String?
+ overriddenBy User? @relation(fields: [overriddenById], references: [id])
+}
+model Project {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ customerId String
+ customer Customer @relation(fields: [customerId], references: [id])
+ opportunityId String @unique
+ opportunity Opportunity @relation(fields: [opportunityId], references: [id])
+ estimateId String
+ estimate Estimate @relation(fields: [estimateId], references: [id])
+ status ProjectStatus @default(PRE_CONSTRUCTION)
+ startDate DateTime?
+ estimatedCompletionDate DateTime?
+ actualCompletionDate DateTime?
+ contractValue Decimal @db.Decimal(14,2)
+ estimatedCost Decimal @db.Decimal(14,2)
+ actualCost Decimal @db.Decimal(14,2)
+ estimatedGrossProfit Decimal @db.Decimal(14,2)
+ actualGrossProfit Decimal @db.Decimal(14,2)
+ projectManagerId String?
+ projectManager User? @relation(fields: [projectManagerId], references: [id])
+ tasks ProjectTask[]
+}
+model ProjectTask {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ projectId String
+ project Project @relation(fields: [projectId], references: [id])
+ title String
+ dueAt DateTime?
+ completedAt DateTime?
+}
+model AIAgent {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ name String @unique
+ provider String?
+ model String?
+ enabled Boolean @default(false)
+ actions AIAction[]
+ recommendations AIRecommendation[]
+}
+model AIAction {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ agentId String
+ agent AIAgent @relation(fields: [agentId], references: [id])
+ type String
+ risk Risk
+ status ActionStatus @default(PROPOSED)
+ reason String
+ context Json
+ result Json?
+ executedAt DateTime?
+ approvalRequired Boolean @default(true)
+ approval ApprovalRequest?
+}
+model AIRecommendation {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ agentId String
+ agent AIAgent @relation(fields: [agentId], references: [id])
+ title String
+ rationale String
+ context Json
+ developmentOnly Boolean @default(false)
+}
+model ApprovalRequest {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ actionId String @unique
+ action AIAction @relation(fields: [actionId], references: [id])
+ status ActionStatus @default(AWAITING_APPROVAL)
+ approvedById String?
+ approvedBy User? @relation(fields: [approvedById], references: [id])
+ decidedAt DateTime?
+ reason String?
+}

@@ -1,0 +1,4 @@
+ALTER TABLE "Lead" ADD CONSTRAINT "Lead_score_range" CHECK ("leadScore" BETWEEN 0 AND 100), ADD CONSTRAINT "Lead_budget_range" CHECK (("budgetMin" IS NULL OR "budgetMin" >= 0) AND ("budgetMax" IS NULL OR "budgetMax" >= 0) AND ("budgetMin" IS NULL OR "budgetMax" IS NULL OR "budgetMin" <= "budgetMax"));
+ALTER TABLE "Opportunity" ADD CONSTRAINT "Opportunity_probability_range" CHECK ("probability" BETWEEN 0 AND 100), ADD CONSTRAINT "Opportunity_value_nonnegative" CHECK ("estimatedValue" IS NULL OR "estimatedValue" >= 0);
+ALTER TABLE "ServiceItem" ADD CONSTRAINT "ServiceItem_pricing_bounds" CHECK ("materialCost" >= 0 AND "laborCost" >= 0 AND "subcontractorCost" >= 0 AND "overheadAllocation" >= 0 AND "defaultMarkup" >= 0 AND "minimumMargin" >= 0 AND "minimumMargin" < 1);
+ALTER TABLE "EstimateLineItem" ADD CONSTRAINT "EstimateLineItem_quantity_nonnegative" CHECK ("quantity" >= 0);
