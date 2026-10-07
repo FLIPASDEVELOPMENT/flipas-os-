@@ -2,7 +2,7 @@
 
 AI-Powered Remodeling Operations for Flipas Home Remodeling, Florida.
 
-Phase 1 implements secure login, six roles, scoped customer/lead/opportunity access, customer records, lead create/edit/assignment/scoring/notes, opportunity value/next-action editing, an audited Kanban pipeline and a database-backed dashboard. Estimates, Projects and AI Center routes explicitly show their Phase 2 status; no real AI or communication actions execute.
+Phase 1 implements secure login, six roles, scoped customer/lead/opportunity access, customer records, lead create/edit/assignment/scoring/notes, opportunity value/next-action editing, an audited Kanban pipeline and a database-backed dashboard. Phase 2 adds FLIPAS ESTIMATOR: configurable pricing, cost snapshots, draft builder, revisions, approval, customer proposals/PDFs and controlled project handoff. AI remains read-only preparation; no real AI or automatic communication executes.
 
 ## Architecture
 
@@ -15,7 +15,7 @@ Read [architecture](docs/ARCHITECTURE.md), [data model](docs/DATA_MODEL.md) and 
 Requires Node.js 24, npm, Docker and Docker Compose. Use the existing isolated checkout; no worktree is needed.
 
 ```sh
-cd /workspace/flipas-os-
+cd ~/Projects/flipas-os- # on macOS; cloud checkout: /workspace/flipas-os-
 npm run env:local # creates a random local database password; preserves existing .env
 npm ci
 npm run db:generate
@@ -30,10 +30,14 @@ npm run db:migrate
 Provision the initial owner without storing a password in source or command history:
 
 ```sh
+set -a
+. ./.env
+set +a
 export USER_EMAIL='owner@your-company.com'
 export USER_NAME='Business Owner'
 export USER_ROLE='OWNER'
-read -r -s -p 'New password (12+ characters): ' USER_PASSWORD
+# macOS default shell (zsh):
+read -s 'USER_PASSWORD?New password (12+ characters): '
 printf '\n'
 export USER_PASSWORD
 npm run user:create
@@ -83,11 +87,11 @@ Integration tests use unique fixtures and remove only their own records. HTTP sm
 | `ALLOW_DEMO_SEED` | Explicit development seed opt-in. |
 | `SMOKE_BASE_URL` | Optional test target; defaults to loopback port 3000. |
 
-No AI credentials are required for Phase 1.
+No AI credentials or additional secrets are required for Phase 2.
 
 ## Migrations and restricted networks
 
-`202610070001_initial` creates the relational schema. `202610070002_integrity` adds database checks for score, budgets, probability and pricing bounds.
+`202610070001_initial` creates the relational schema. `202610070002_integrity` adds database checks for score, budgets, probability and pricing bounds. `202610070003_estimator` adds catalog history, estimator settings/templates/approvals/counter, snapshot fields and PostgreSQL immutability triggers. It is additive and atomic, backfills target margins without changing existing catalog costs, and preserves Phase 1 data. The runner now passes complete scripts to PostgreSQL to support dollar-quoted functions.
 
 `db:generate` and `db:migrate` use official Prisma npm-packaged generator and WASM schema engine, with package versions pinned together. This avoids the CLI's native binary download requirement in restricted cloud environments. npm integrity and TLS verification remain enabled. Migration execution uses Prisma's migration history and locking, rather than a custom SQL ledger. These internal interfaces are version-sensitive: upgrade them together and rerun database and repeatability tests.
 
@@ -124,11 +128,27 @@ unset USER_PASSWORD
 
 For upgrades, back up first, build new images and rerun `docker compose up -d --force-recreate migrate app`. Do not remove database volumes. Before customer production use, configure off-host PostgreSQL backups, test restore, monitoring, retention and MFA/SSO policy. Publication of the Codex environment is separate from application deployment.
 
-## Phase 2 and business decisions
+## FLIPAS ESTIMATOR (Phase 2)
 
-Phase 2 adds database pricing management, estimate snapshots/overrides, approvals, delivery, projects/tasks and AI providers. Phase 1 does not automatically create a project when a card reaches WON.
+See [estimator workflow and financial policy](docs/ESTIMATOR.md). Open **Estimates → Catalog** as OWNER/ADMIN and initialize the nine categories and three scope-only templates. Configure business contact, branding, reviewed terms and discount approval threshold in **Business settings**, then add your actual service costs and margins. No final company pricing or legal claims are seeded.
 
-Owner decisions: confirm Sales visibility/assignment rules (Sales only sees assigned records), intake-lead creation for Sales-created customers, acceptable margin/rounding policy, contract prerequisites for WON, communications consent, retention and backup recovery objectives. Pricing calculations are tested foundations, not an approved production quoting policy.
+Create an estimate from scratch or a template, attach a customer and optional opportunity (which links to its lead), price every line, configure tax treatment, future expiration and payment milestones totaling 100%. Save and submit for approval. OWNER/ADMIN reviews the frozen internal snapshot and listed exceptions; Sales cannot approve or release. Reject to draft for corrections. Approve, then explicitly release; **release does not send anything**. Download PDF or inspect customer preview. Record externally obtained acceptance with its reference. After the linked opportunity is WON, use **Create initial project**. Revisions preserve the original snapshots; duplicate creates a separate estimate series.
+
+For an existing local checkout, stop Next with Ctrl+C, switch to the feature branch when available, then run `npm ci`, `npm run db:generate`, start the existing PostgreSQL container, `npm run db:migrate`, and `npm run dev`. Preserve `.env` and the database volume. Your existing OWNER login remains valid.
+
+Estimator database tests must use a separate disposable database with a name ending `_test`:
+
+```sh
+docker compose exec db createdb -U flipas flipas_estimator_test
+set -a
+. ./.env
+set +a
+# This subshell does not change your normal application DATABASE_URL:
+( export DATABASE_URL="${DATABASE_URL%/*}/flipas_estimator_test"; npm run db:migrate && npm run db:migrate && npm run test:estimator )
+docker compose exec db dropdb -U flipas flipas_estimator_test
+```
+
+Do not target a customer production database for tests. Owner review is required for real pricing/target and minimum margins, discount threshold, rounding policy, overhead allocation, tax applicability/rates, reviewed terms, expiry/payment/acceptance policy and Sales visibility. Full project management, e-signatures, customer portal/delivery, real AI and production deployment remain outside this phase.
 
 ### Cloud proxy build
 

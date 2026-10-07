@@ -17,3 +17,7 @@ Verified in the cloud workspace on 2026-10-07:
 No customer production database, live business data, external AI provider, email/SMS delivery, browser interaction/accessibility suite, production TLS domain, backup recovery or external deployment was tested. Phase 2 behavior is disabled. User accounts must be provisioned securely; no default login is shipped.
 
 The environment configuration draft stores installation and startup instructions. Saving this draft is not publication. Application source is local workspace work; nothing has been pushed to GitHub.
+
+## Phase 2
+
+See [Phase 2 delivery](PHASE_2_DELIVERY.md) for the new estimator, migration, production/Docker HTTP and Chromium checks. This supersedes the earlier Phase 1-only statement that estimator behavior is disabled.

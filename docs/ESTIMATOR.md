@@ -1,0 +1,21 @@
+# FLIPAS ESTIMATOR design
+
+Additive Phase 2, on feature/phase-2-estimator. Existing CRM, authentication and database records stay intact.
+
+Catalog financial changes create immutable before/after history in one transaction. Effective date windows control selection. Estimate lines snapshot all component costs, target/minimum margins, unit and calculated/overridden price; saved drafts retain those snapshots unless a user explicitly adds/reselects a catalog item. Catalog changes never recalculate existing estimates.
+
+Direct cost includes material, labor, subcontractors and other direct costs. Allocated overhead stays separate. Target-margin pricing is direct cost / (1 - margin), never markup. Unit target price rounds upward to cents; extended line costs/prices and tax round HALF_UP to cents. Totals sum rounded lines. Percentage discount is allocated proportionally with residual cents reconciled; tax applies only to taxable discounted amounts. Revenue excludes collected taxes for gross profit/margin. Zero revenue has undefined margin (displayed as N/A); negative profit is permitted in drafts but requires approval. USD only; input precision is cents, quantity three decimal places, ratios four decimal places. Rate input uses ratios: 0.30 means 30%. Tax starts UNREVIEWED; release requires owner/admin tax review, explicit applicable rate and no assumed Florida treatment.
+
+Draft → REVIEW (content frozen) → APPROVED → SENT (manual release, no delivery) → ACCEPTED (staff-recorded external acceptance reference). Rejection returns to DRAFT. Any draft edit invalidates approvals via contentVersion. Non-draft content is protected by services and database triggers. Revisions preserve prior versions; duplication creates a separate estimate series. Number allocation uses a transactional counter; family revision is uniquely indexed. Optimistic concurrency detects stale drafts; serializable transactions protect decisions and handoff.
+
+Sales sees assigned CRM records and prepares drafts, including auditable custom items. Only OWNER/ADMIN can change catalog/settings, approve exceptions, record tax review, release, accept and create projects. Each review request contains FINAL_RELEASE plus applicable exception reasons. Any discount requires approval by default; the configurable threshold governs the significant-discount flag. Approval applies only to exact frozen contentVersion. OWNER/ADMIN may approve their own work under the initial policy; business owner must confirm whether a second reviewer is required. No AI mutation/execution integration.
+
+PDF/HTML customer output uses an explicit proposal DTO without costs, margins, markup, supplier pricing, audit reasons or internal notes. Routes require existing internal CRM authentication; no public customer portal or email delivery. Preview drafts are watermarked; release requires configured company contact information and reviewed terms. No license, insurance, warranty or contractual claims are invented. Accepted estimates plus WON opportunities can create a linked project once, preserving revenue net of tax and snapshot direct costs. Full project management is deferred.
+
+## Illustrative development-only arithmetic (not company prices)
+
+A hypothetical test item with material cost $100.00, allocated overhead $10.00 and target margin 30% calculates a unit price of $142.86. Quantity 2 gives direct cost $200.00 and selling subtotal $285.72. These are testing examples only, not approved Flipas pricing. Scope templates intentionally contain no financial assumptions. Replace every custom zero-cost placeholder with reviewed scope and real costs before release.
+
+## Routes and limitations
+
+`/estimates`, `/estimates/new`, `/estimates/[id]`, `/estimates/catalog`, `/estimates/templates`, `/estimates/settings`, `/proposals/[id]`, `/api/estimates/[id]/pdf`, `/projects`. Customer previews are authenticated internal previews, not a public portal. Template configuration currently uses a structured JSON editor; individual estimate sections/items use the visual builder. Draft duplication preserves the original customer/opportunity binding. PDFs use Latin standard fonts; unsupported characters are substituted, so non-Latin font support is deferred. No e-signature, automatic sending, actual job-cost workflow or tax/legal advice is provided.

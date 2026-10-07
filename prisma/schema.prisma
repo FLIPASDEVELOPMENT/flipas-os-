@@ -77,6 +77,10 @@ enum Unit {
  FLAT
 }
 model User {
+ estimates Estimate[]
+ estimateApprovals EstimateApproval[]
+ pricingChanges CatalogPriceHistory[]
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -196,6 +200,12 @@ model ServiceCategory {
  items ServiceItem[]
 }
 model ServiceItem {
+ otherDirectCost Decimal @default(0) @db.Decimal(14,2)
+ targetMargin Decimal @default(0) @db.Decimal(7,4)
+ effectiveFrom DateTime @default(now())
+ effectiveTo DateTime?
+ history CatalogPriceHistory[]
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -214,6 +224,38 @@ model ServiceItem {
  lines EstimateLineItem[]
 }
 model Estimate {
+ number String? @unique
+ seriesId String @default(cuid())
+ revision Int @default(1)
+ contentVersion Int @default(0)
+ creatorId String?
+ creator User? @relation(fields:[creatorId],references:[id])
+ category String @default("General Remodeling")
+ projectAddress String @default("")
+ scope String @default("")
+ notes String @default("")
+ inclusions String @default("")
+ exclusions String @default("")
+ durationDays Int?
+ expiresAt DateTime?
+ paymentSchedule Json @default("[]")
+ customerSnapshot Json @default("{}")
+ businessSnapshot Json @default("{}")
+ discountAmount Decimal @default(0) @db.Decimal(14,2)
+ discountRate Decimal @default(0) @db.Decimal(7,4)
+ significantDiscountThreshold Decimal @default(0) @db.Decimal(7,4)
+ taxTreatment String @default("UNREVIEWED")
+ taxRate Decimal @default(0) @db.Decimal(7,4)
+ taxAmount Decimal @default(0) @db.Decimal(14,2)
+ totalInvestment Decimal @default(0) @db.Decimal(14,2)
+ allocatedOverhead Decimal @default(0) @db.Decimal(14,2)
+ contributionProfit Decimal @default(0) @db.Decimal(14,2)
+ approvalReasons Json @default("[]")
+ acceptedAt DateTime?
+ acceptanceReference String?
+ approvals EstimateApproval[]
+ @@unique([seriesId,revision])
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -240,6 +282,17 @@ model EstimateSection {
  lines EstimateLineItem[]
 }
 model EstimateLineItem {
+ description String @default("")
+ position Int @default(0)
+ otherDirectCost Decimal @default(0) @db.Decimal(14,2)
+ targetMargin Decimal @default(0) @db.Decimal(7,4)
+ unitCost Decimal @default(0) @db.Decimal(14,2)
+ totalCost Decimal @default(0) @db.Decimal(14,2)
+ allocatedOverhead Decimal @default(0) @db.Decimal(14,2)
+ calculatedUnitPrice Decimal @default(0) @db.Decimal(14,2)
+ unitPrice Decimal @default(0) @db.Decimal(14,2)
+ taxable Boolean @default(false)
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -344,4 +397,55 @@ model ApprovalRequest {
  approvedBy User? @relation(fields: [approvedById], references: [id])
  decidedAt DateTime?
  reason String?
+}
+
+model CatalogPriceHistory {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ serviceItemId String
+ serviceItem ServiceItem @relation(fields:[serviceItemId],references:[id])
+ actorId String
+ actor User @relation(fields:[actorId],references:[id])
+ before Json
+ after Json
+ reason String
+ @@index([serviceItemId,createdAt])
+}
+model EstimateApproval {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ estimateId String
+ estimate Estimate @relation(fields:[estimateId],references:[id])
+ contentVersion Int
+ requesterId String
+ reasons Json
+ status String @default("PENDING")
+ reviewerId String?
+ reviewer User? @relation(fields:[reviewerId],references:[id])
+ rationale String?
+ decidedAt DateTime?
+ @@index([estimateId,status])
+}
+model EstimateTemplate {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ name String @unique
+ category String
+ sections Json
+ active Boolean @default(true)
+ developmentOnly Boolean @default(false)
+}
+model EstimatorSettings {
+ id String @id @default("company")
+ updatedAt DateTime @updatedAt
+ companyName String @default("Flipas Home Remodeling")
+ contactInfo String @default("")
+ brandingColor String @default("#172b30")
+ terms String @default("")
+ significantDiscountThreshold Decimal @default(0) @db.Decimal(7,4)
+}
+model EstimateCounter {
+ id String @id
+ value Int @default(0)
 }
