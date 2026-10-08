@@ -198,6 +198,11 @@ async function main() {
       .find((f) => f.includes("deliveryConsent"));
     assert.ok(deliveryForm);
     assert.match(deliveryForm, /<button[^>]*disabled/);
+    assert.match(deliveryForm, /Mailbox delivery authorization is blocked because the deployment gate is disabled/);
+    assert.match(deliveryForm, /Checking consent does not override this server safety control/);
+    assert.match(deliveryForm, /ZOHO_SEND_ENABLED must be exactly true/);
+    assert.match(deliveryForm, /aria-describedby="delivery-gate-/);
+    assert.match(deliveryForm, /It cannot send to third parties/);
     const deliveryAction = deliveryForm.match(/name="(\$ACTION_ID_[^"]+)"/);
     assert.ok(deliveryAction);
     const activation = new FormData();

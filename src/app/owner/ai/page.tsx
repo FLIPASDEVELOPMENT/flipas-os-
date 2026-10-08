@@ -378,9 +378,23 @@ export default async function AIAdmin({
                         I explicitly authorize this mailbox and selected
                         delivery mode. Emergency Pause stays active.
                       </label>
+                      {!realDeliveryEnabled() ? (
+                        <p id={`delivery-gate-${c.id}`} role="status" className="muted wide">
+                          Mailbox delivery authorization is blocked because the deployment gate is disabled.
+                          Checking consent does not override this server safety control.
+                          The private server setting ZOHO_SEND_ENABLED must be exactly true before delivery can be authorized.
+                          Leave it disabled during this review; no OAuth reconnection is needed.
+                          Emergency Pause remains active. Access testing is still available and never sends email.
+                        </p>
+                      ) : null}
+                      <p className="muted wide">
+                        One self-addressed test only permits a single approved reply to this mailbox’s own address: {c.address}.
+                        It cannot send to third parties. Approval and a separate Send action are still required.
+                      </p>
                       <button
                         name="operation"
                         value="enable"
+                        aria-describedby={!realDeliveryEnabled() ? `delivery-gate-${c.id}` : undefined}
                         disabled={!realDeliveryEnabled()}
                       >
                         Authorize mailbox delivery (keeps Emergency Pause)
