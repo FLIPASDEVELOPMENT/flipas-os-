@@ -25,3 +25,7 @@ Proposal HTML and PDF receive the same customer-only projection. Authenticated r
 ## OWNER financial administration
 
 `src/owner` contains OWNER guards, pure policy/allocation calculations and serializable audited version writes. OWNER routes and APIs deny every other role independently of navigation visibility. Estimator drafts retain captured policy versions; new estimates inherit the active version and compute automatic project-level allocation. Sales builder props exclude confidential monthly plan amounts. Financial reports distinguish contract bookings, estimates, recorded non-final cost and revenue plans.
+
+## Phase 3 internal AI Sales
+
+Mail and AI provider interfaces isolate the inbox from external transports. PostgreSQL stores leased jobs, immutable reply versions and unique send attempts. Separate guarded `/ai` routes reuse existing authentication. Zoho implementation remains blocked; the OpenAI adapter is implemented with simulated-response tests; see AI_SALES.md.

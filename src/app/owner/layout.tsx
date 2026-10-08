@@ -18,6 +18,7 @@ export default async function OwnerLayout({
             ["/owner/approvals", "Approval center"],
             ["/owner/team", "Team & permissions"],
             ["/owner/profitability", "Project profitability"],
+            ["/owner/ai", "AI Administration"],
           ].map(([href, label]) => (
             <Link href={href} key={href}>
               {label}

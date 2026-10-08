@@ -19,3 +19,7 @@ Lifecycle: DRAFT → REVIEW → APPROVED → SENT → ACCEPTED; rejection is REV
 ## OWNER Console
 
 Migration 202610070004_owner_console adds immutable FinancialPolicy versions, FinancialPolicyHead active pointer and Estimate.financialPolicySnapshot. Policy versions capture monthly revenue/overhead plans, target/minimum gross margins, discount threshold, creator and reason. Initial owner-requested values are audited. No existing CRM, catalog or estimate data is removed. See OWNER_CONSOLE.md.
+
+## AI Sales models
+
+The additive 202610080001_ai_sales migration adds mail connections/threads/messages, settings, immutable draft versions, send attempts, follow-ups, jobs, OAuth state and usage. Scalar CRM/user foreign keys and lifecycle checks are enforced by SQL. No existing estimate snapshot or financial policy is changed.

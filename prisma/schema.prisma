@@ -471,3 +471,182 @@ model FinancialPolicyHead {
  policyId String @unique
  policy FinancialPolicy @relation(fields:[policyId],references:[id])
 }
+
+model SalesAISettings {
+ id String @id @default("company")
+ updatedAt DateTime @updatedAt
+ processingEnabled Boolean @default(false)
+ outboundPaused Boolean @default(true)
+ liveAuthorized Boolean @default(false)
+ mailProvider String @default("MOCK")
+ aiProvider String @default("MOCK")
+ model String @default("")
+ aiKeyCipher String?
+ inputCostPerMillion Decimal? @db.Decimal(14,6)
+ outputCostPerMillion Decimal? @db.Decimal(14,6)
+ approveRoles Json @default("[\"OWNER\"]")
+ sendRoles Json @default("[\"OWNER\"]")
+ retentionDays Int @default(30)
+ pollMinutes Int @default(5)
+ oauthRegion String @default("US")
+ oauthClientId String @default("")
+ oauthSecretCipher String?
+}
+model MailConnection {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ provider String
+ ownerId String
+ region String @default("US")
+ accountId String
+ address String
+ folderId String?
+ consented Boolean @default(false)
+ tokenCipher String?
+ oauthClientId String @default("")
+ oauthSecretCipher String?
+ tokenExpiresAt DateTime?
+ connected Boolean @default(true)
+ lastSyncAt DateTime?
+ syncCursor String?
+ lastError String?
+ conversations MailConversation[]
+ @@unique([provider,accountId])
+}
+model MailConversation {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ connectionId String
+ connection MailConnection @relation(fields:[connectionId],references:[id])
+ threadId String
+ subject String
+ senderEmail String
+ senderName String @default("")
+ assignedToId String
+ customerId String?
+ leadId String?
+ opportunityId String?
+ unread Boolean @default(true)
+ processed Boolean @default(false)
+ classification String @default("UNREVIEWED")
+ intelligence Json?
+ analyzedAt DateTime?
+ messages MailMessage[]
+ drafts SalesEmailDraft[]
+ followUps SalesFollowUp[]
+ @@unique([connectionId,threadId])
+ @@index([assignedToId,updatedAt])
+}
+model MailMessage {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ conversationId String
+ conversation MailConversation @relation(fields:[conversationId],references:[id])
+ providerMessageId String
+ receivedAt DateTime
+ direction String @default("INBOUND")
+ fromEmail String
+ toEmail String
+ subject String
+ body String
+ attachments Json @default("[]")
+ @@unique([conversationId,providerMessageId])
+}
+model SalesEmailDraft {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ conversationId String
+ conversation MailConversation @relation(fields:[conversationId],references:[id])
+ status String @default("GENERATED")
+ version Int @default(1)
+ approvedVersion Int?
+ approvedById String?
+ approvedAt DateTime?
+ requestedById String?
+ lastError String?
+ versions SalesEmailVersion[]
+ attempts MailSendAttempt[]
+}
+model SalesEmailVersion {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ draftId String
+ draft SalesEmailDraft @relation(fields:[draftId],references:[id])
+ version Int
+ recipient String
+ subject String
+ body String
+ bodyHash String
+ actorId String
+ source String
+ @@unique([draftId,version])
+}
+model MailSendAttempt {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ draftId String
+ draft SalesEmailDraft @relation(fields:[draftId],references:[id])
+ version Int
+ idempotencyKey String @unique
+ status String @default("STARTED")
+ actorId String
+ providerMessageId String?
+ errorCode String?
+ @@unique([draftId,version])
+}
+model SalesFollowUp {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ conversationId String
+ conversation MailConversation @relation(fields:[conversationId],references:[id])
+ assignedToId String
+ dueAt DateTime
+ reason String
+ completedAt DateTime?
+ suggested Boolean @default(true)
+ @@index([assignedToId,dueAt])
+}
+model SalesJob {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ type String
+ payload Json
+ key String @unique
+ status String @default("PENDING")
+ attempts Int @default(0)
+ runAt DateTime @default(now())
+ lockedUntil DateTime?
+ leaseToken String?
+ errorCode String?
+ completedAt DateTime?
+ @@index([status,runAt])
+}
+model MailOAuthState {
+ id String @id @default(cuid())
+ stateHash String @unique
+ bindingHash String
+ userId String
+ region String
+ clientId String
+ secretCipher String
+ expiresAt DateTime
+ usedAt DateTime?
+}
+model SalesAIUsage {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ provider String
+ model String
+ conversationId String
+ inputTokens Int @default(0)
+ outputTokens Int @default(0)
+ estimatedCost Decimal? @db.Decimal(14,6)
+ success Boolean
+ errorCode String?
+}

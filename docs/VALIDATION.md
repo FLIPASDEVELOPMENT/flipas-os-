@@ -25,3 +25,11 @@ See [Phase 2 delivery](PHASE_2_DELIVERY.md) for the new estimator, migration, pr
 ## OWNER Console extension
 
 17 unit tests, existing CRM/estimator integration and dedicated owner policy integration pass. Fresh additive migrations and rerun apply correctly. Production build, lint/types, Docker build and Chromium desktop/mobile policy save pass. Owner route/API HTTP tests verify role denial and anonymous requests. See OWNER_CONSOLE.md.
+
+## Phase 3 internal/mock checkpoint validation (2026-10-08 UTC)
+
+Lint, TypeScript, 27 unit tests and production build passed. Separate disposable PostgreSQL databases ran CRM (1), estimator (1), OWNER Console (1) and AI Sales integration (18 including its parent test), all passed. AI HTTP passed against native production and Docker runtime: seven role identities, owner-only administration, SALES assignment scope, anonymous denial, blocked cross-origin mutation and authorized draft creation. Docker runtime/tools images built; containerized worker --once successfully connected to PostgreSQL. Encryption-key setup was verified for randomness, file mode 0600 and repeatability. Generated client chunks contained no encryption/token storage code.
+
+Docker validation initially exhausted cloud disk space and stopped PostgreSQL. Removing unused build cache freed space, then PostgreSQL restarted healthy with its persistent volume intact. Development application and mock-safe worker were restarted and login/anonymous route checks passed. No application data was deleted or reset.
+
+Official Zoho web documentation requests returned HTTP 403 from the environment proxy. The Zoho OAuth/API connector remains unimplemented/disabled. The OpenAI adapter was verified against official SDK source and tested using simulated HTTP responses; no authenticated live-provider call was run. Token/OAuth tests cover provider-independent mocked foundations only. No real customer email or paid model call occurred. The existing npm audit reports 6 high findings; dependencies were preserved and no forced upgrade was made. See AI_SALES.md for known limits and the network draft needed to resume live integration work.

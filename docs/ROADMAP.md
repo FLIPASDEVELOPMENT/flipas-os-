@@ -8,3 +8,7 @@
 Owner decisions: confirm role visibility and ownership reassignment policy; approve pricing/margin/rounding policy; lost-sale reasons and won-sale contract prerequisites; data retention, backup recovery targets and customer consent for communication. Production release also needs MFA/SSO selection, monitoring and recovery rehearsal.
 
 OWNER Console extends Phase 2 with live executive reporting, OWNER-only versioned financial policies, approval center, team permissions and estimated project profitability. Business policy snapshots and automatic overhead are implemented; cash accounting, final job costs and team role editing remain separate work.
+
+## Phase 3 progress
+
+Internal AI Sales mock checkpoint built; official Zoho documentation access and subsequent Zoho connector work and authorized live-provider verification remain outstanding. Not merged into main or deployed.

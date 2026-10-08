@@ -19,7 +19,11 @@
     "test:estimator": "tsx --test tests/estimator.integration.ts",
     "test:estimator:http": "tsx tests/estimator.http.ts",
     "test:owner": "tsx --test tests/owner.integration.ts",
-    "test:owner:http": "tsx tests/owner.http.ts"
+    "test:owner:http": "tsx tests/owner.http.ts",
+    "worker:ai": "tsx scripts/sales-worker.ts",
+    "test:ai": "tsx --test tests/sales-ai.integration.ts",
+    "test:ai:http": "tsx tests/sales-ai.http.ts",
+    "env:mail": "node scripts/create-mail-key.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",
