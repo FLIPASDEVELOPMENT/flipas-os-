@@ -18,6 +18,7 @@ export default async function Layout({
           AI-Powered Remodeling Operations
         </p>
         <nav>
+          {user.role === "OWNER" && <Link href="/owner">Owner console</Link>}
           {[
             ["/", "Dashboard"],
             ["/leads", "Leads"],

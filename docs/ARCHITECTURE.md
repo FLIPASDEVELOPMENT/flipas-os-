@@ -21,3 +21,7 @@ Leads connected to opportunities must remain assigned. Creating an opportunity f
 Proposal HTML and PDF receive the same customer-only projection. Authenticated routes prevent public database access; internal fields never enter the projection. PDF generation uses pdf-lib and standard embedded fonts without browser/network dependencies. Configurable branding/contact/terms are captured in each saved snapshot. No licensing or contractual claims are fabricated.
 
 `estimatorAnalysisContext` provides scoped, read-only structured requirements, template checklists, profitability flags, follow-up questions and limited same-customer historical project comparisons. Initial actual costs are explicitly non-final. It exposes no AI provider or mutation/delivery capability.
+
+## OWNER financial administration
+
+`src/owner` contains OWNER guards, pure policy/allocation calculations and serializable audited version writes. OWNER routes and APIs deny every other role independently of navigation visibility. Estimator drafts retain captured policy versions; new estimates inherit the active version and compute automatic project-level allocation. Sales builder props exclude confidential monthly plan amounts. Financial reports distinguish contract bookings, estimates, recorded non-final cost and revenue plans.

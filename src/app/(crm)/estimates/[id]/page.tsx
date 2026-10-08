@@ -1,3 +1,4 @@
+import { parsePolicy, builderPolicy } from "@/owner/policy";
 import Link from "next/link";
 import Decimal from "decimal.js";
 import { notFound } from "next/navigation";
@@ -120,6 +121,7 @@ export default async function Detail({
         <Builder
           key={e.contentVersion}
           initial={toDraft(e)}
+          policy={builderPolicy(parsePolicy(e.financialPolicySnapshot))}
           customers={[
             {
               id: e.customerId,

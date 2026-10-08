@@ -1,4 +1,9 @@
 "use client";
+import {
+  BuilderPolicy,
+  policyLine,
+  allocatedOverheadFromRate,
+} from "@/owner/policy";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Decimal from "decimal.js";
@@ -56,6 +61,7 @@ export default function Builder({
   templates,
   canReview,
   threshold,
+  policy,
 }: {
   initial: DraftInput;
   customers: { id: string; name: string; address: string }[];
@@ -64,6 +70,7 @@ export default function Builder({
   templates: TemplateRow[];
   canReview: boolean;
   threshold: string;
+  policy?: BuilderPolicy | null;
 }) {
   const [draft, setDraft] = useState(initial);
   const [error, setError] = useState("");
@@ -125,12 +132,23 @@ export default function Builder({
     calculationError = "";
   try {
     totals = calculateEstimate(
-      draft.sections.flatMap((s) => s.lines),
+      draft.sections
+        .flatMap((s) => s.lines)
+        .map((l) => (policy ? policyLine(l, policy) : l)),
       draft.discountRate,
       draft.taxRate,
       draft.taxTreatment,
-      threshold,
+      policy?.significantDiscountThreshold ?? threshold,
     );
+    if (policy) {
+      totals.allocatedOverhead = allocatedOverheadFromRate(
+        totals.sellingPrice,
+        policy.overheadRate,
+      );
+      totals.contributionProfit = new Decimal(totals.grossProfit)
+        .minus(totals.allocatedOverhead)
+        .toFixed(2);
+    }
   } catch (e) {
     calculationError =
       e instanceof Error ? e.message : "Complete the financial fields";
@@ -176,6 +194,14 @@ export default function Builder({
     >
       <div className="estimator-toolbar">
         <h2>Draft builder</h2>
+        {policy && (
+          <p className="muted">
+            Financial policy v{policy.version} · Target{" "}
+            {new Decimal(policy.targetMargin).mul(100).toString()}% · Minimum{" "}
+            {new Decimal(policy.minimumMargin).mul(100).toString()}% · Automatic
+            project overhead
+          </p>
+        )}
         <button disabled={pending}>{pending ? "Saving…" : "Save draft"}</button>
       </div>
       {error && (
@@ -471,9 +497,14 @@ export default function Builder({
                         : key === "minimumMargin"
                           ? "Minimum gross margin ratio"
                           : key.replace(/([A-Z])/g, " $1"),
-                      item[key],
+                      policy && key.includes("Margin")
+                        ? policyLine(item, policy)[key]
+                        : item[key],
                       (value) => line(s, l, { [key]: value }),
-                      !!item.serviceItemId,
+                      !!item.serviceItemId ||
+                        (!!policy &&
+                          (key.includes("Margin") ||
+                            key === "overheadAllocation")),
                       key.includes("Margin") ? "0.0001" : "0.01",
                     )}
                   </div>

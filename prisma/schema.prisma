@@ -77,6 +77,7 @@ enum Unit {
  FLAT
 }
 model User {
+ financialPolicies FinancialPolicy[]
  estimates Estimate[]
  estimateApprovals EstimateApproval[]
  pricingChanges CatalogPriceHistory[]
@@ -224,6 +225,7 @@ model ServiceItem {
  lines EstimateLineItem[]
 }
 model Estimate {
+ financialPolicySnapshot Json @default("{}")
  number String? @unique
  seriesId String @default(cuid())
  revision Int @default(1)
@@ -448,4 +450,24 @@ model EstimatorSettings {
 model EstimateCounter {
  id String @id
  value Int @default(0)
+}
+
+model FinancialPolicy {
+ id String @id @default(cuid())
+ version Int @unique
+ createdAt DateTime @default(now())
+ createdById String?
+ createdBy User? @relation(fields:[createdById],references:[id])
+ reason String
+ monthlyProjectedRevenue Decimal @db.Decimal(14,2)
+ monthlyFixedOverhead Decimal @db.Decimal(14,2)
+ targetMargin Decimal @db.Decimal(7,4)
+ minimumMargin Decimal @db.Decimal(7,4)
+ significantDiscountThreshold Decimal @db.Decimal(7,4)
+ head FinancialPolicyHead?
+}
+model FinancialPolicyHead {
+ id String @id @default("company")
+ policyId String @unique
+ policy FinancialPolicy @relation(fields:[policyId],references:[id])
 }

@@ -21,3 +21,7 @@ The environment configuration draft stores installation and startup instructions
 ## Phase 2
 
 See [Phase 2 delivery](PHASE_2_DELIVERY.md) for the new estimator, migration, production/Docker HTTP and Chromium checks. This supersedes the earlier Phase 1-only statement that estimator behavior is disabled.
+
+## OWNER Console extension
+
+17 unit tests, existing CRM/estimator integration and dedicated owner policy integration pass. Fresh additive migrations and rerun apply correctly. Production build, lint/types, Docker build and Chromium desktop/mobile policy save pass. Owner route/API HTTP tests verify role denial and anonymous requests. See OWNER_CONSOLE.md.

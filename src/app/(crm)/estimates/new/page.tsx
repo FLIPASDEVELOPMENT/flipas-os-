@@ -1,3 +1,5 @@
+import { builderPolicy } from "@/owner/policy";
+import { activePolicy } from "@/owner/service";
 import { requireCRM } from "@/server/auth";
 import { db } from "@/server/db";
 import { customerScope, opportunityScope } from "@/server/crm";
@@ -9,6 +11,7 @@ import { DraftInput } from "@/estimator/domain/input";
 export default async function New() {
   const u = await requireCRM();
   const now = new Date();
+  const policy = await activePolicy();
   const [customers, opportunities, catalog, templates, settings] =
     await Promise.all([
       db.customer.findMany({
@@ -60,6 +63,7 @@ export default async function New() {
       ) : (
         <Builder
           initial={initial}
+          policy={builderPolicy(policy)}
           customers={customers.map((c) => ({
             id: c.id,
             name: `${c.firstName} ${c.lastName}`,

@@ -128,6 +128,10 @@ unset USER_PASSWORD
 
 For upgrades, back up first, build new images and rerun `docker compose up -d --force-recreate migrate app`. Do not remove database volumes. Before customer production use, configure off-host PostgreSQL backups, test restore, monitoring, retention and MFA/SSO policy. Publication of the Codex environment is separate from application deployment.
 
+## OWNER Console
+
+The existing OWNER account can open **Owner console** (`/owner`) for executive metrics, versioned financial policies, pending estimate approvals, team permissions and project profitability. Initial owner-requested plan: $30,000 projected monthly revenue, $2,000 fixed overhead, 35% target gross margin and 20% minimum. New estimates inherit active policies; historical snapshots remain unchanged. Automatic overhead is proportional to contract revenue excluding tax. See [OWNER Console](docs/OWNER_CONSOLE.md) for calculations, permissions, migration and limitations. This adds no authentication system or required secrets.
+
 ## FLIPAS ESTIMATOR (Phase 2)
 
 See [estimator workflow and financial policy](docs/ESTIMATOR.md). Open **Estimates → Catalog** as OWNER/ADMIN and initialize the nine categories and three scope-only templates. Configure business contact, branding, reviewed terms and discount approval threshold in **Business settings**, then add your actual service costs and margins. No final company pricing or legal claims are seeded.

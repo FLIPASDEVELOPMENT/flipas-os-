@@ -1,3 +1,5 @@
+import { activePolicy } from "@/owner/service";
+import { parsePolicy, policyLine, projectOverhead } from "@/owner/policy";
 import Decimal from "decimal.js";
 import { randomUUID } from "node:crypto";
 import { Prisma, User } from "@/generated/prisma/client";
@@ -330,12 +332,20 @@ export async function saveDraft(u: User, input: unknown) {
         where: { id: "company" },
       });
       const sections = await resolveLines(tx, data, existing);
+      const policy = existing
+        ? parsePolicy(existing.financialPolicySnapshot)
+        : await activePolicy(tx);
+      if (policy)
+        for (const section of sections)
+          section.lines = section.lines.map((line) => policyLine(line, policy));
       const totals = calculateEstimate(
         sections.flatMap((s) => s.lines),
         data.discountRate,
         data.taxRate,
         data.taxTreatment,
-        settings?.significantDiscountThreshold.toString() ?? "0",
+        policy?.significantDiscountThreshold ??
+          settings?.significantDiscountThreshold.toString() ??
+          "0",
       );
       if (
         data.paymentSchedule.length &&
@@ -344,7 +354,14 @@ export async function saveDraft(u: User, input: unknown) {
           .eq(1)
       )
         throw new Error("Payment milestone percentages must sum to 100%");
+      if (policy) {
+        totals.allocatedOverhead = projectOverhead(totals.sellingPrice, policy);
+        totals.contributionProfit = new Decimal(totals.grossProfit)
+          .minus(totals.allocatedOverhead)
+          .toFixed(2);
+      }
       const patch = {
+        financialPolicySnapshot: json(policy ?? {}),
         customerId: customer.id,
         opportunityId: opportunity?.id ?? null,
         category: data.category,
@@ -360,7 +377,9 @@ export async function saveDraft(u: User, input: unknown) {
         taxRate: data.taxRate,
         taxTreatment: data.taxTreatment,
         significantDiscountThreshold:
-          settings?.significantDiscountThreshold ?? "0",
+          policy?.significantDiscountThreshold ??
+          settings?.significantDiscountThreshold ??
+          "0",
         discountAmount: totals.discountAmount,
         directCost: totals.directCost,
         sellingPrice: totals.sellingPrice,
@@ -550,6 +569,7 @@ export async function copyEstimate(u: User, id: string, revision: boolean) {
           customerSnapshot: json(fields.customerSnapshot),
           businessSnapshot: json(fields.businessSnapshot),
           approvalReasons: json(fields.approvalReasons),
+          financialPolicySnapshot: json(fields.financialPolicySnapshot),
           number: `${base}-R${nextRevision}`,
           seriesId: revision ? source.seriesId : randomUUID(),
           revision: nextRevision,

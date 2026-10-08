@@ -1,3 +1,4 @@
+import { activePolicy, saveFinancialPolicy } from "../src/owner/service";
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -39,6 +40,15 @@ test("migration, catalog snapshot, stale edits, RBAC, approval, immutability, re
     sales = await make("SALES", "sales"),
     other = await make("SALES", "other"),
     crew = await make("CREW", "crew");
+  const initialPolicy = await activePolicy();
+  await saveFinancialPolicy(owner, {
+    ...initialPolicy,
+    expectedVersion: initialPolicy.version,
+    targetMargin: "0.20",
+    minimumMargin: "0.10",
+    significantDiscountThreshold: "0.05",
+    reason: "Development-only estimator regression policy",
+  });
   await initializeCatalog(owner);
   await initializeCatalog(owner);
   assert.equal(await db.serviceCategory.count(), 9);
