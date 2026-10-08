@@ -8,7 +8,7 @@ Status: AI Sales and the read-only Zoho Mail connector are implemented on `featu
 - `/ai/inbox`: assigned inbox for SALES, searchable subjects/senders, category and unread/unprocessed filters. Latest 100 results.
 - `/ai/inbox/[id]`: plain-text message history, sender, structured extraction with confidence and exact evidence references, missing project details, recommended qualifying questions/template, human classification, CRM links, representative assignment by OWNER, follow-ups and English/Spanish reply drafts.
 - `/ai/follow-ups`: actual assigned due/overdue tasks and completed history. Open a conversation to draft a follow-up; no reminder sends mail.
-- `/owner/ai`: OWNER-only processing toggle, emergency outbound pause, role configuration, mock initialization, mailbox health, recorded usage, jobs, send attempts and audited changes. Zoho is available for explicitly authorized read-only access in US/EU. OpenAI requires an OWNER-entered encrypted key and model.
+- `/owner/ai`: OWNER-only processing toggle, emergency outbound pause, role configuration, mock initialization, mailbox health, recorded usage, jobs, send attempts and audited changes. Zoho is available for explicitly authorized read-only access in US/EU. OpenAI requires private server environment configuration; see [OpenAI setup and budget](OPENAI_SETUP.md).
 - Customer records show linked conversations, filtered by the user's mail assignments.
 
 Mock mail imports two synthetic `example.invalid` messages clearly labeled DEVELOPMENT ONLY: a kitchen inquiry and a newsletter. The mock AI uses deterministic heuristics and neutral canned replies, not a language model. Its confidence is explicitly a development indicator. Unknown names, phone, location and timeline stay null. Only explicit budget text is extracted. No attachments are downloaded, rendered or executed.
@@ -54,12 +54,12 @@ SYNC, ANALYZE, SEND, REMIND and RETENTION jobs live in PostgreSQL. Polling inser
 ## Security and current limits
 
 - Existing Phase 1 sessions/RBAC and Next server-action origin checks protect mutations. OWNER-only settings; OWNER/ADMIN CRM roles can inspect mail, SALES only assigned conversations; other roles denied. OWNER can grant approval/sending to ADMIN/SALES without expanding SALES record scope.
-- Integration secrets and token sets use randomized AES-256-GCM with a server-only 32-byte hex `MAIL_ENCRYPTION_KEY`. There is no default key and no secret values returned to browsers, audit records or logs. `npm run env:mail` securely appends a random key to your existing ignored `.env`; it preserves an existing key. Securely back it up and never commit or paste it. Losing/changing it requires reconnecting integrations. Mock-only mode needs no key.
+- Zoho integration secrets and token sets use randomized AES-256-GCM with a server-only 32-byte hex `MAIL_ENCRYPTION_KEY`. There is no default key and no secret values returned to browsers, audit records or logs. `npm run env:mail` securely appends a random key to your existing ignored `.env`; it preserves an existing key. Securely back it up and never commit or paste it. Losing/changing it requires reconnecting integrations. Mock-only mode needs no key.
 - Provider-independent OAuth state helpers bind owner/browser, hash state, expire after ten minutes and consume once. The connector uses them for its actual OWNER-only OAuth start/callback and account/folder selection flow. Provider-independent token lifecycle tests cover authenticated storage, serialized refresh, rotation and redacted failures; real exchange remains unrun; the adapter contract is exercised with simulated responses.
 - Model abstraction receives only the inquiry and can never call CRM/financial/send tools. Mock output ignores prompt injection. Structured facts require exact message evidence; outgoing approval blocks price/discount/contractual/sensitive terms. **This is not a claim that live-model prompt injection defenses have been validated.** Live-model use is disabled by default; OWNER must explicitly configure a key/model and select OpenAI before calls can occur.
 - Email HTML is displayed as escaped plain text; bodies limited to 30 KB; bounded metadata accepts PDF/images/TXT <=5 MiB. Attachments are never fetched.
 - Retention setting removes old inbox bodies/attachment metadata and stale extracted intelligence. Exact draft versions and audited communications remain retained for human review. This is **not** complete erasure of all customer PII. An audited/legal retention policy for drafts, addresses and history remains a live-rollout requirement.
-- Provider error text is replaced by allowlisted codes. Only explicitly authorized US/EU Zoho mailboxes/folders can be connected and synchronized. Real sending remains blocked. UI usage counts describe actual mock operations; model costs are estimated only when OWNER supplies both token rates; unknown costs are unavailable, not invented.
+- Provider error text is replaced by allowlisted codes. Only explicitly authorized US/EU Zoho mailboxes/folders can be connected and synchronized. Real sending remains blocked. UI usage counts describe actual mock operations; OpenAI calls require verified positive server token rates, with persisted monthly budget reservations and OWNER-only reports.
 - No paid provider calls or customer communications occurred during development. No Zoho password is needed or requested.
 
 ## Docker
@@ -77,16 +77,6 @@ docker compose up -d app sales-worker
 
 Follow [ZOHO_MAIL.md](ZOHO_MAIL.md) for official endpoint/scope evidence, exact callback registration and private configuration requirements. Migration `202610080002_zoho_readonly` adds encrypted, short-lived `MailOAuthGrant` staging and stores the callback URI in OAuth state. REVOKE/REVOKE_GRANT jobs handle disconnected/unfinished authorization; failed revocations have OWNER retry controls. Real sending cannot be enabled with settings or approval. No external credentials are requested in chat.
 
-## OpenAI adapter configuration (optional, owner-authorized only)
+## OpenAI engine and monthly budget
 
-The adapter uses `POST https://api.openai.com/v1/responses`. This contract was verified on 2026-10-08 against official OpenAI SDK documentation and generated OpenAPI types:
-
-- https://github.com/openai/openai-python/blob/main/README.md
-- https://github.com/openai/openai-python/blob/main/src/openai/_client.py
-- https://github.com/openai/openai-python/blob/main/src/openai/resources/responses/responses.py
-- https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_format_text_json_schema_config_param.py
-- https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_usage.py
-
-No model is hard-coded. Use a model supported by your provider account and Responses JSON Schema output. Configure `npm run env:mail` locally first, restart app/worker so both inherit the key, and enter the provider key and model in `/owner/ai` only when the OWNER authorizes transmitting inquiry text to OpenAI. Keep MOCK selected otherwise. OpenAI receives no CRM database, financial settings, credentials or tool permissions. Actual input/output token counts are recorded after validated successful responses; optional OWNER-supplied USD/million token rates estimate cost with decimal arithmetic. Missing rates produce no cost estimate. Provider-side billing after an uncertain/rejected response is not captured as confirmed usage.
-
-`store:false`, no tools, 45-second request timeout, 150 KB response limit, bounded recent inbound context, basic credential redaction, schema/evidence checks and outgoing restrictions apply. Structured format uses `strict:false` plus strict local Zod/evidence validation rather than claiming full support for every schema constraint in all models. Models can still fail/refuse; those outputs are rejected and never automatically sent. Request error bodies are never logged. Live `api.openai.com` network access is required only after OWNER authorizes this optional adapter. No paid call was made in validation.
+See [OPENAI_SETUP.md](OPENAI_SETUP.md) for exact private environment variables, official verified model/pricing, secure Mac setup, budget reservations, limits and the first real test. The official Node SDK replaces the REST adapter; old DB-stored OpenAI keys are cleared by migration. Tokens are recorded before output validation. Missing rates block real requests; uncertain usage retains its conservative reservation. MOCK remains the initial mode and real mail sending remains disabled.

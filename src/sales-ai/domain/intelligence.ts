@@ -10,7 +10,18 @@ export const classification = z.enum([
   "Not a sales lead",
 ]);
 const nullable = z.string().max(1000).nullable();
+export const mailKind = z.enum([
+  "POTENTIAL_CUSTOMER",
+  "EXISTING_CUSTOMER",
+  "SUPPLIER",
+  "ADVERTISEMENT",
+  "SPAM",
+  "OTHER",
+]);
 export const intelligenceSchema = z.object({
+  mailKind: mailKind.default("OTHER"),
+  language: z.enum(["EN", "ES", "UNKNOWN"]).default("UNKNOWN"),
+  needsHumanReview: z.boolean().default(true),
   category: classification,
   source: z.literal("MAIL"),
   customerName: nullable,
@@ -97,6 +108,9 @@ export function mockIntelligence(messages: AnalysisMessage[]): Intelligence {
     ? [{ field: "budget", messageId: m.id, quote: budget[1] }]
     : [];
   return {
+    mailKind: category === "Not a sales lead" ? "OTHER" : "POTENTIAL_CUSTOMER",
+    language: /hola|quiero|presupuesto|cocina|baño/i.test(text) ? "ES" : "EN",
+    needsHumanReview: true,
     category,
     source: "MAIL",
     customerName: null,

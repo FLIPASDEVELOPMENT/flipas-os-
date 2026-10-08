@@ -23,3 +23,5 @@ Migration 202610070004_owner_console adds immutable FinancialPolicy versions, Fi
 ## AI Sales models
 
 The additive 202610080001_ai_sales migration adds mail connections/threads/messages, settings, immutable draft versions, send attempts, follow-ups, jobs, OAuth state and usage. Scalar CRM/user foreign keys and lifecycle checks are enforced by SQL. No existing estimate snapshot or financial policy is changed.
+
+OpenAI budget: `SalesAIBudgetMonth` serializes reservations; `SalesAIUsage` records operation, month, message, token counts, frozen rates, estimated/reserved cost and outcome. OWNER settings default to $10 budget/$5 alert and include an independent AI pause. `MailConversation.reviewedAt` records explicit human review. Provider keys reside only in private server environment; migration clears legacy OpenAI DB keys.

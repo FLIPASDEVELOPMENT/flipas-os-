@@ -1,3 +1,5 @@
+import { runAI } from "./budget";
+import { openaiConfig } from "./openai-config";
 import { zohoProvider } from "./zoho";
 import { estimatedUsageCost } from "../domain/usage";
 import { z } from "zod";
@@ -10,7 +12,6 @@ import { assertSalesAI, conversationScope, configuredRole } from "./access";
 import {
   digest,
   encryptSecret,
-  decryptSecret,
   unsafeReply,
   textOnly,
   allowedAttachment,
@@ -21,7 +22,7 @@ import {
   validateEvidence,
   AnalysisMessage,
 } from "../domain/intelligence";
-import { providerFor, validateDraft } from "../providers/ai";
+import { validateDraft } from "../providers/ai";
 import { MockMailProvider, MailProvider, mailMessage } from "../providers/mail";
 export const json = (v: unknown) =>
   JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue;
@@ -138,6 +139,9 @@ export const configInput = z.object({
   mailProvider: z.enum(["MOCK", "ZOHO"]),
   aiProvider: z.enum(["MOCK", "OPENAI"]),
   model: z.string().max(100),
+  aiPaused: z.boolean().default(false),
+  monthlyBudget: z.coerce.number().positive().max(1000).default(10),
+  alertAt: z.coerce.number().positive().max(1000).default(5),
   approveRoles: z.array(z.enum(["OWNER", "ADMIN", "SALES"])),
   sendRoles: z.array(z.enum(["OWNER", "ADMIN", "SALES"])),
   retentionDays: z.coerce.number().int().min(7).max(3650),
@@ -158,39 +162,33 @@ export const configInput = z.object({
 export async function configureAI(u: User, input: unknown) {
   assertOwner(u);
   const d = configInput.parse(input);
+  if (d.alertAt > d.monthlyBudget) throw new Error("AI_CONFIG_REQUIRED");
   if (d.liveAuthorized) throw new Error("LIVE_DISABLED");
-  if (d.mailProvider === "ZOHO" && !["US", "EU"].includes(d.oauthRegion)) throw new Error("REGION_UNSUPPORTED");
-  if (
-    d.aiProvider === "OPENAI" &&
-    (!d.model.trim() ||
-      (!d.aiKey &&
-        !(await db.salesAISettings
-          .findUnique({
-            where: { id: "company" },
-            select: { aiKeyCipher: true },
-          })
-          .then((s) => s?.aiKeyCipher))))
-  )
-    throw new Error("AUTH_REQUIRED");
+  if (d.mailProvider === "ZOHO" && !["US", "EU"].includes(d.oauthRegion))
+    throw new Error("REGION_UNSUPPORTED");
+  if (d.aiKey) throw new Error("AI_CONFIG_REQUIRED");
+  if (d.aiProvider === "OPENAI") openaiConfig();
   const {
     oauthSecret,
-    aiKey,
+    aiKey: _unusedKey,
     inputCostPerMillion,
     outputCostPerMillion,
     ...rest
   } = d;
+  void _unusedKey;
   return db.$transaction(async (tx) => {
     const old = await tx.salesAISettings.findUnique({
       where: { id: "company" },
     });
     const fields = {
       ...rest,
+
       approveRoles: json(d.approveRoles),
       sendRoles: json(d.sendRoles),
       inputCostPerMillion: inputCostPerMillion || null,
       outputCostPerMillion: outputCostPerMillion || null,
       ...(oauthSecret ? { oauthSecretCipher: encryptSecret(oauthSecret) } : {}),
-      ...(aiKey ? { aiKeyCipher: encryptSecret(aiKey) } : {}),
+      aiKeyCipher: null,
     };
     await tx.salesAISettings.upsert({
       where: { id: "company" },
@@ -204,6 +202,14 @@ export async function configureAI(u: User, input: unknown) {
       sendRoles: d.sendRoles,
       retentionDays: d.retentionDays,
       previousPaused: old?.outboundPaused ?? true,
+      aiPaused: d.aiPaused,
+      monthlyBudget: d.monthlyBudget,
+      alertAt: d.alertAt,
+      previousBudget: old?.monthlyBudget.toString() ?? null,
+      previousAiPaused: old?.aiPaused ?? null,
+      previousAlertAt: old?.alertAt.toString() ?? null,
+      aiProvider: d.aiProvider,
+      previousAiProvider: old?.aiProvider ?? null,
     });
   });
 }
@@ -219,9 +225,14 @@ export async function syncMailbox(
   if (!settings.processingEnabled) throw new Error("PROCESSING_DISABLED");
   if (!connection.connected || !connection.consented || !connection.folderId)
     throw new Error("AUTH_REQUIRED");
-  if (connection.provider === "ZOHO" && settings.mailProvider !== "ZOHO") throw new Error("PROCESSING_DISABLED");
-  if (!["MOCK", "ZOHO"].includes(connection.provider)) throw new Error("LIVE_DISABLED");
-  provider ??= connection.provider === "ZOHO" ? await zohoProvider(id) : new MockMailProvider();
+  if (connection.provider === "ZOHO" && settings.mailProvider !== "ZOHO")
+    throw new Error("PROCESSING_DISABLED");
+  if (!["MOCK", "ZOHO"].includes(connection.provider))
+    throw new Error("LIVE_DISABLED");
+  provider ??=
+    connection.provider === "ZOHO"
+      ? await zohoProvider(id)
+      : new MockMailProvider();
   signal?.throwIfAborted();
   const page = await provider.listMessages(id, connection.syncCursor, signal);
   signal?.throwIfAborted();
@@ -234,11 +245,23 @@ export async function syncMailbox(
   await db.$transaction(
     async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "MailConnection" WHERE "id"=${id} FOR UPDATE`;
-      const current = await tx.mailConnection.findUniqueOrThrow({where:{id}});
-      const activeSettings = await tx.salesAISettings.findUniqueOrThrow({where:{id:"company"}});
-      if(!current.connected || !current.consented || current.folderId!==connection.folderId || current.syncCursor!==connection.syncCursor)
+      const current = await tx.mailConnection.findUniqueOrThrow({
+        where: { id },
+      });
+      const activeSettings = await tx.salesAISettings.findUniqueOrThrow({
+        where: { id: "company" },
+      });
+      if (
+        !current.connected ||
+        !current.consented ||
+        current.folderId !== connection.folderId ||
+        current.syncCursor !== connection.syncCursor
+      )
         throw new Error("AUTH_REQUIRED");
-      if(!activeSettings.processingEnabled || (current.provider==="ZOHO" && activeSettings.mailProvider!=="ZOHO"))
+      if (
+        !activeSettings.processingEnabled ||
+        (current.provider === "ZOHO" && activeSettings.mailProvider !== "ZOHO")
+      )
         throw new Error("PROCESSING_DISABLED");
       for (const raw of page.messages) {
         signal?.throwIfAborted();
@@ -286,7 +309,12 @@ export async function syncMailbox(
         });
         await tx.mailConversation.update({
           where: { id: c.id },
-          data: { unread: true, processed: false, updatedAt: new Date() },
+          data: {
+            unread: true,
+            processed: false,
+            reviewedAt: null,
+            updatedAt: new Date(),
+          },
         });
         await enqueue(
           "ANALYZE",
@@ -344,7 +372,9 @@ export async function analyzeConversation(id: string, signal?: AbortSignal) {
       body: m.body,
     }));
   if (!messages.length) return;
-  const result = await configuredAI(settings).analyze(messages, signal);
+  const result = await runAI(id, "ANALYZE", messages, (provider) =>
+    provider.analyze(messages, signal),
+  );
   signal?.throwIfAborted();
   const info = validateEvidence(result.value, messages);
   await db.$transaction(async (tx) => {
@@ -358,20 +388,22 @@ export async function analyzeConversation(id: string, signal?: AbortSignal) {
           analysisModel: result.model,
         }),
         analyzedAt: new Date(),
+        reviewedAt: null,
         processed: true,
       },
     });
-    await tx.salesAIUsage.create({
-      data: {
-        provider: result.provider,
-        model: result.model,
-        conversationId: id,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        success: true,
-        estimatedCost: usageCost(settings, result),
-      },
-    });
+    if (result.provider === "MOCK")
+      await tx.salesAIUsage.create({
+        data: {
+          provider: result.provider,
+          model: result.model,
+          conversationId: id,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          success: true,
+          estimatedCost: usageCost(settings, result),
+        },
+      });
     await audit(tx, null, "SALES_AI_ANALYZED", {
       conversationId: id,
       provider: result.provider,
@@ -459,6 +491,7 @@ export async function confirmLead(u: User, id: string, input: unknown) {
   return db.$transaction(
     async (tx) => {
       const c = await conversation(u, id, tx);
+      assertCommercialReview(c);
       if (
         c.classification === "Not a sales lead" ||
         c.classification === "UNREVIEWED"
@@ -531,7 +564,7 @@ export async function assignConversation(u: User, id: string, userId: string) {
 export async function generateDraft(
   u: User,
   id: string,
-  language: "EN" | "ES",
+  language: "EN" | "ES" | "AUTO",
   purpose: "QUALIFY" | "FOLLOW_UP" = "QUALIFY",
 ) {
   const c = await conversation(u, id);
@@ -542,18 +575,24 @@ export async function generateDraft(
     c.classification === "UNREVIEWED"
   )
     throw new Error("Review sales classification first");
-  const result = await configuredAI(settings).draft(
-    c.messages
-      .filter((m) => m.direction === "INBOUND")
-      .slice(-5)
-      .map((m) => ({
-        id: m.id,
-        fromEmail: m.fromEmail,
-        subject: m.subject,
-        body: m.body,
-      })),
-    language,
-    purpose,
+  assertCommercialReview(c);
+  const messages = c.messages
+    .filter((m) => m.direction === "INBOUND")
+    .slice(-5)
+    .map((m) => ({
+      id: m.id,
+      fromEmail: m.fromEmail,
+      subject: m.subject,
+      body: m.body,
+    }));
+  const replyLanguage =
+    language === "AUTO"
+      ? intelligence(c)?.language === "ES"
+        ? "ES"
+        : "EN"
+      : language;
+  const result = await runAI(id, "DRAFT", messages, (provider) =>
+    provider.draft(messages, replyLanguage, purpose),
   );
   const body = validateDraft(result.value);
   return db.$transaction(async (tx) => {
@@ -572,17 +611,18 @@ export async function generateDraft(
         source: result.provider,
       },
     });
-    await tx.salesAIUsage.create({
-      data: {
-        provider: result.provider,
-        model: result.model,
-        conversationId: id,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        success: true,
-        estimatedCost: usageCost(settings, result),
-      },
-    });
+    if (result.provider === "MOCK")
+      await tx.salesAIUsage.create({
+        data: {
+          provider: result.provider,
+          model: result.model,
+          conversationId: id,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          success: true,
+          estimatedCost: usageCost(settings, result),
+        },
+      });
     await audit(
       tx,
       u.id,
@@ -981,10 +1021,26 @@ export async function disconnectMailbox(u: User, id: string) {
     const c = await tx.mailConnection.findUniqueOrThrow({ where: { id } });
     await tx.mailConnection.update({
       where: { id },
-      data: { connected: false, consented: false,
-        ...(c.provider === "ZOHO" ? {lastError:"REVOCATION_PENDING"} : {tokenCipher:null,oauthSecretCipher:null,tokenExpiresAt:null}) },
+      data: {
+        connected: false,
+        consented: false,
+        ...(c.provider === "ZOHO"
+          ? { lastError: "REVOCATION_PENDING" }
+          : {
+              tokenCipher: null,
+              oauthSecretCipher: null,
+              tokenExpiresAt: null,
+            }),
+      },
     });
-    if(c.provider === "ZOHO" && c.tokenCipher) await enqueue("REVOKE", `revoke:${id}:${randomUUID()}`, {connectionId:id}, new Date(), tx);
+    if (c.provider === "ZOHO" && c.tokenCipher)
+      await enqueue(
+        "REVOKE",
+        `revoke:${id}:${randomUUID()}`,
+        { connectionId: id },
+        new Date(),
+        tx,
+      );
     await audit(tx, u.id, "MAIL_DISCONNECTED", { connectionId: id });
   });
 }
@@ -995,18 +1051,6 @@ export function intelligence(c: {
   return result.success ? result.data : null;
 }
 
-function configuredAI(settings: {
-  aiProvider: string;
-  aiKeyCipher: string | null;
-  model: string;
-}) {
-  return providerFor(
-    settings.aiProvider,
-    settings.aiProvider === "OPENAI" && settings.aiKeyCipher
-      ? { key: decryptSecret(settings.aiKeyCipher), model: settings.model }
-      : undefined,
-  );
-}
 function usageCost(
   settings: {
     inputCostPerMillion: Prisma.Decimal | null;
@@ -1021,4 +1065,19 @@ function usageCost(
     },
     usage,
   );
+}
+
+function assertCommercialReview(c: {
+  intelligence: Prisma.JsonValue | null;
+  reviewedAt: Date | null;
+}) {
+  const i = intelligence(c);
+  const raw = c.intelligence as { analysisProvider?: string } | null;
+  if (raw?.analysisProvider !== "OPENAI") return;
+  if (
+    !i ||
+    !["POTENTIAL_CUSTOMER", "EXISTING_CUSTOMER"].includes(i.mailKind) ||
+    (i.needsHumanReview && !c.reviewedAt)
+  )
+    throw new Error("HUMAN_REVIEW_REQUIRED");
 }

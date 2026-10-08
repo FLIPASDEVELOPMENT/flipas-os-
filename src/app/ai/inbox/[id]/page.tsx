@@ -10,7 +10,7 @@ import {
   matchingCustomers,
 } from "@/sales-ai/server/service";
 import { threadAction, draftAction } from "@/sales-ai/actions";
-import { classification } from "@/sales-ai/domain/intelligence";
+import { classification, mailKind } from "@/sales-ai/domain/intelligence";
 import { DateTime, Mode, Notice } from "@/sales-ai/components";
 function ThreadFields({ id, operation }: { id: string; operation: string }) {
   return (
@@ -83,8 +83,32 @@ export default async function Thread({
       <div className="columns">
         <section className="panel">
           <h2>Commercial review</h2>
+          <p>
+            Mail classification: {info?.mailKind ?? "Unreviewed"} ·{" "}
+            {info?.needsHumanReview
+              ? "Human review required"
+              : "Recommendation reviewed"}
+          </p>
+          <form action={threadAction}>
+            <input type="hidden" name="id" value={c.id} />
+            <input type="hidden" name="operation" value="analyze" />
+            <button>Analyze this conversation again</button>
+            <p className="muted">
+              Uses one AI request when OpenAI is selected; four requests maximum
+              per latest email, including drafts. Does not change existing
+              replies.
+            </p>
+          </form>
           <form action={threadAction} className="form">
             <ThreadFields id={id} operation="mark" />
+            <label>
+              Mail type
+              <select name="mailKind" defaultValue={info?.mailKind ?? "OTHER"}>
+                {mailKind.options.map((v) => (
+                  <option key={v}>{v}</option>
+                ))}
+              </select>
+            </label>
             <label className="wide">
               Classification
               <select
@@ -337,7 +361,8 @@ export default async function Thread({
           <ThreadFields id={id} operation="generate" />
           <label>
             Reply language
-            <select name="language">
+            <select name="language" defaultValue="AUTO">
+              <option value="AUTO">Customer language (automatic)</option>
               <option value="EN">English</option>
               <option value="ES">Español</option>
             </select>

@@ -1,7 +1,15 @@
+import { budgetSummary } from "@/sales-ai/server/budget";
+import { openaiStatus } from "@/sales-ai/server/openai-config";
 import { callbackUri, readScopes } from "@/sales-ai/providers/zoho";
 import { requireOwner } from "@/owner/auth";
 import { db } from "@/server/db";
-import { initialize, configuration, mailboxAction, connectZoho, retryRevocation } from "@/sales-ai/actions";
+import {
+  initialize,
+  configuration,
+  mailboxAction,
+  connectZoho,
+  retryRevocation,
+} from "@/sales-ai/actions";
 import { DateTime, Mode, Notice } from "@/sales-ai/components";
 export default async function AIAdmin({
   searchParams,
@@ -10,11 +18,31 @@ export default async function AIAdmin({
 }) {
   await requireOwner();
   const p = await searchParams;
+  const budget = await budgetSummary();
+  const provider = openaiStatus();
+  const requests = await db.salesAIUsage.findMany({
+    where: { provider: "OPENAI" },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+    select: {
+      id: true,
+      createdAt: true,
+      operation: true,
+      model: true,
+      inputTokens: true,
+      outputTokens: true,
+      estimatedCost: true,
+      status: true,
+    },
+  });
   const [s, connections, jobs, logs, usage, sends] = await Promise.all([
     db.salesAISettings.findUnique({
       where: { id: "company" },
       select: {
         processingEnabled: true,
+        aiPaused: true,
+        monthlyBudget: true,
+        alertAt: true,
         outboundPaused: true,
         liveAuthorized: true,
         mailProvider: true,
@@ -81,6 +109,80 @@ export default async function AIAdmin({
       </p>
       <Notice {...p} />
       <section className="panel">
+        <h2>OpenAI monthly budget · {budget.month} UTC</h2>
+        <div className="form">
+          <div>
+            <p>Estimated consumption</p>
+            <h2>${Number(budget.spent).toFixed(4)}</h2>
+          </div>
+          <div>
+            <p>Pending / uncertain reservations</p>
+            <h2>${Number(budget.reserved).toFixed(4)}</h2>
+          </div>
+          <div>
+            <p>Monthly limit / alert</p>
+            <h2>
+              ${s?.monthlyBudget.toString() ?? "10"} / $
+              {s?.alertAt.toString() ?? "5"}
+            </h2>
+          </div>
+          <div>
+            <p>Input / output tokens</p>
+            <h2>
+              {budget.inputTokens} / {budget.outputTokens}
+            </h2>
+          </div>
+        </div>
+        {Number(budget.effective) >= Number(s?.alertAt ?? 5) && (
+          <p role="alert">
+            Budget alert: review estimated consumption and reservations before
+            continuing.
+          </p>
+        )}
+        <p>
+          Internal estimates do not guarantee an exact provider billing limit.
+          Pending requests reserve their maximum estimated cost. Uncertain
+          reservations remain counted for this month.
+        </p>
+        <p>
+          Private server configuration:{" "}
+          {provider.configured
+            ? `${provider.model} · input $${provider.inputRate} / output $${provider.outputRate} per million tokens · rates verified ${provider.verifiedAt}`
+            : "Incomplete. Configure private server environment before selecting OpenAI."}
+        </p>
+      </section>
+      <section className="panel">
+        <h2>Recent OpenAI operations</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Operation / model</th>
+              <th>Tokens in / out</th>
+              <th>Estimated USD</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {requests.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  <DateTime date={r.createdAt} />
+                </td>
+                <td>
+                  {r.operation} · {r.model}
+                </td>
+                <td>
+                  {r.inputTokens} / {r.outputTokens}
+                </td>
+                <td>{r.estimatedCost?.toString() ?? "Reserved / uncertain"}</td>
+                <td>{r.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      <section className="panel">
         <h2>Development mailbox</h2>
         <p>
           Initialize two clearly labeled mock messages. The durable worker
@@ -116,9 +218,7 @@ export default async function AIAdmin({
               defaultValue={s?.mailProvider ?? "MOCK"}
             >
               <option value="MOCK">Mock (development only)</option>
-              <option value="ZOHO">
-                Zoho Mail (read only)
-              </option>
+              <option value="ZOHO">Zoho Mail (read only)</option>
             </select>
           </label>
           <label>
@@ -133,11 +233,37 @@ export default async function AIAdmin({
           <p className="muted wide">
             Selecting OpenAI and enabling processing authorizes inquiry text to
             be sent to that provider. Keep Mock selected for development; do not
-            enter a real key until you authorize provider use.
+            configure a real server key until you authorize provider use.
           </p>
+          <label className="checkbox-label">
+            <input
+              name="aiPaused"
+              type="checkbox"
+              defaultChecked={s?.aiPaused ?? false}
+            />
+            Pause AI requests (mail import remains independent)
+          </label>
           <label>
-            Model
-            <input name="model" defaultValue={s?.model ?? ""} maxLength={100} />
+            Monthly internal budget (USD)
+            <input
+              name="monthlyBudget"
+              type="number"
+              min="0.01"
+              max="1000"
+              step="0.01"
+              defaultValue={s?.monthlyBudget.toString() ?? "10"}
+            />
+          </label>
+          <label>
+            Alert threshold (USD)
+            <input
+              name="alertAt"
+              type="number"
+              min="0.01"
+              max="1000"
+              step="0.01"
+              defaultValue={s?.alertAt.toString() ?? "5"}
+            />
           </label>
           <label>
             Polling interval (minutes)
@@ -203,36 +329,14 @@ export default async function AIAdmin({
             Old inbox bodies and extracted intelligence are removed. Exact draft
             versions and communication audits are retained for review.
           </p>
-          <label>
-            Estimated input cost / million tokens (USD)
-            <input
-              name="inputCostPerMillion"
-              defaultValue={s?.inputCostPerMillion?.toString() ?? ""}
-              placeholder="Leave blank if unknown"
-            />
-          </label>
-          <label>
-            Estimated output cost / million tokens (USD)
-            <input
-              name="outputCostPerMillion"
-              defaultValue={s?.outputCostPerMillion?.toString() ?? ""}
-              placeholder="Leave blank if unknown"
-            />
-          </label>
-          <label>
-            AI key (server encrypted)
-            <input
-              name="aiKey"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Blank preserves stored key"
-            />
-          </label>
           <div className="wide">
             <details>
               <summary>Zoho OAuth configuration (read only)</summary>
               <p className="muted">
-                Use a server-based application registered in your matching Zoho region. Never enter a Zoho account password. US and EU are supported; other regions remain locked pending Mail endpoint verification.
+                Use a server-based application registered in your matching Zoho
+                region. Never enter a Zoho account password. US and EU are
+                supported; other regions remain locked pending Mail endpoint
+                verification.
               </p>
               <div className="form">
                 <label>
@@ -241,11 +345,9 @@ export default async function AIAdmin({
                     name="oauthRegion"
                     defaultValue={s?.oauthRegion ?? "US"}
                   >
-                    {["US", "EU"].map(
-                      (v) => (
-                        <option key={v}>{v}</option>
-                      ),
-                    )}
+                    {["US", "EU"].map((v) => (
+                      <option key={v}>{v}</option>
+                    ))}
                   </select>
                 </label>
                 <label>
@@ -273,9 +375,17 @@ export default async function AIAdmin({
       </section>
       <section className="panel">
         <h2>Connect Zoho Mail</h2>
-        <p>Save your private OAuth configuration above first. Register this exact redirect URI: <code>{callbackUri()}</code></p>
-        <p>Permissions: {readScopes.join(", ")}. Sending, deleting and marking messages are not authorized.</p>
-        <form action={connectZoho}><button>Authorize read-only Zoho access</button></form>
+        <p>
+          Save your private OAuth configuration above first. Register this exact
+          redirect URI: <code>{callbackUri()}</code>
+        </p>
+        <p>
+          Permissions: {readScopes.join(", ")}. Sending, deleting and marking
+          messages are not authorized.
+        </p>
+        <form action={connectZoho}>
+          <button>Authorize read-only Zoho access</button>
+        </form>
       </section>
       <section className="panel">
         <h2>Integration health</h2>
@@ -298,7 +408,11 @@ export default async function AIAdmin({
             </div>
             <form action={mailboxAction} className="button-row">
               <input type="hidden" name="id" value={c.id} />
-              {!c.connected && c.lastError === "REVOCATION_PENDING" && <button name="operation" value="disconnect">Retry Zoho revocation</button>}
+              {!c.connected && c.lastError === "REVOCATION_PENDING" && (
+                <button name="operation" value="disconnect">
+                  Retry Zoho revocation
+                </button>
+              )}
               {c.connected && (
                 <>
                   <button name="operation" value="sync">
@@ -352,7 +466,16 @@ export default async function AIAdmin({
                 <td>{j.type}</td>
                 <td>{j.status}</td>
                 <td>{j.attempts}</td>
-                <td>{j.errorCode ?? "—"}{j.status === "FAILED" && ["REVOKE", "REVOKE_GRANT"].includes(j.type) && <form action={retryRevocation}><input type="hidden" name="id" value={j.id}/><button>Retry revocation</button></form>}</td>
+                <td>
+                  {j.errorCode ?? "—"}
+                  {j.status === "FAILED" &&
+                    ["REVOKE", "REVOKE_GRANT"].includes(j.type) && (
+                      <form action={retryRevocation}>
+                        <input type="hidden" name="id" value={j.id} />
+                        <button>Retry revocation</button>
+                      </form>
+                    )}
+                </td>
                 <td>
                   <DateTime date={j.updatedAt} />
                 </td>

@@ -29,3 +29,5 @@ Proposal HTML and PDF receive the same customer-only projection. Authenticated r
 ## Phase 3 internal AI Sales
 
 Mail and AI provider interfaces isolate the inbox from external transports. PostgreSQL stores leased jobs, immutable reply versions and unique send attempts. Separate guarded `/ai` routes reuse existing authentication. Zoho implementation remains blocked; the OpenAI adapter is implemented with simulated-response tests; see AI_SALES.md.
+
+OpenAI uses the official Node SDK Responses API with no tools/retries/storage, private server-only configuration and PostgreSQL reservations before dispatch. Tokens are recorded before structured-output validation; uncertain calls retain reservations. OWNER-only monthly usage controls and exact reply approvals remain separate from read-only Zoho polling. See OPENAI_SETUP.md.

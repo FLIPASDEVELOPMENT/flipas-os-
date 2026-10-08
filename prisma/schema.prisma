@@ -481,6 +481,9 @@ model SalesAISettings {
  mailProvider String @default("MOCK")
  aiProvider String @default("MOCK")
  model String @default("")
+ aiPaused Boolean @default(false)
+ monthlyBudget Decimal @default(10) @db.Decimal(14,6)
+ alertAt Decimal @default(5) @db.Decimal(14,6)
  aiKeyCipher String?
  inputCostPerMillion Decimal? @db.Decimal(14,6)
  outputCostPerMillion Decimal? @db.Decimal(14,6)
@@ -515,6 +518,7 @@ model MailConnection {
  @@unique([provider,accountId])
 }
 model MailConversation {
+ reviewedAt DateTime?
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -646,7 +650,20 @@ model MailOAuthState {
  expiresAt DateTime
  usedAt DateTime?
 }
+model SalesAIBudgetMonth {
+ id String @id
+ alertSentAt DateTime?
+}
 model SalesAIUsage {
+ operation String @default("ANALYZE")
+ monthKey String @default("")
+ messageId String @default("")
+ status String @default("LEGACY")
+ reservedCost Decimal @default(0) @db.Decimal(14,6)
+ inputRate Decimal? @db.Decimal(14,6)
+ outputRate Decimal? @db.Decimal(14,6)
+ @@index([monthKey, provider])
+ @@index([messageId, provider])
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  provider String

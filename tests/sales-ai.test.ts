@@ -164,7 +164,7 @@ test("OpenAI adapter validates structured output without tools/storage and trans
       assert.equal(url, "https://api.openai.com/v1/responses");
       request = JSON.parse(String(init.body));
       assert.equal(
-        (init.headers as Record<string, string>).Authorization,
+        new Headers(init.headers).get("authorization"),
         "Bearer " + key,
       );
       return Response.json({

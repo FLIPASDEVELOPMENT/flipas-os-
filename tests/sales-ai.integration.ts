@@ -44,7 +44,7 @@ test("durable inbox, human CRM confirmation and exact-version approval", async (
     },
   );
   await t.test(
-    "OWNER-only encrypted provider configuration preserves blank keys and mock remains explicit",
+    "OWNER configuration refuses stored AI keys, preserves encrypted Zoho secrets and mock remains explicit",
     async () => {
       const key = randomBytes(32).toString("hex");
       const config = {
@@ -67,13 +67,14 @@ test("durable inbox, human CRM confirmation and exact-version approval", async (
       };
       await assert.rejects(service.configureAI(sales, config));
       await assert.rejects(service.configureAI(admin, config));
-      await service.configureAI(owner, config);
+      await assert.rejects(service.configureAI(owner, config), /AI_CONFIG_REQUIRED/);
+      await service.configureAI(owner, {...config, aiKey:"", aiProvider:"MOCK", oauthSecret:key});
       const saved = await db.salesAISettings.findUniqueOrThrow({
         where: { id: "company" },
       });
       assert.equal(saved.processingEnabled, false);
-      assert.ok(saved.aiKeyCipher && !saved.aiKeyCipher.includes(key));
-      assert.equal(decryptSecret(saved.aiKeyCipher!), key);
+      assert.equal(saved.aiKeyCipher, null);
+      assert.equal(decryptSecret(saved.oauthSecretCipher!), key);
       const log = await db.activity.findFirstOrThrow({
         where: { type: "AI_CONFIGURATION_CHANGED" },
         orderBy: { createdAt: "desc" },

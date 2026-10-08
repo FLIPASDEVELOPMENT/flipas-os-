@@ -16,15 +16,19 @@ export async function scheduleJobs(now = new Date()) {
     where: { id: "company" },
   });
   if (!settings) return;
-  const expiredGrants = await db.mailOAuthGrant.findMany({where:{expiresAt:{lt:now}},select:{id:true}});
-  for(const g of expiredGrants) await enqueue("REVOKE_GRANT", `revoke-grant:${g.id}`, {grantId:g.id});
-  await db.mailOAuthState.deleteMany({where:{expiresAt:{lt:now}}});
+  const expiredGrants = await db.mailOAuthGrant.findMany({
+    where: { expiresAt: { lt: now } },
+    select: { id: true },
+  });
+  for (const g of expiredGrants)
+    await enqueue("REVOKE_GRANT", `revoke-grant:${g.id}`, { grantId: g.id });
+  await db.mailOAuthState.deleteMany({ where: { expiresAt: { lt: now } } });
   if (settings.processingEnabled) {
     const connections = await db.mailConnection.findMany({
       where: { connected: true, consented: true, folderId: { not: null } },
     });
     for (const c of connections) {
-      if(c.provider === "ZOHO" && settings.mailProvider !== "ZOHO") continue;
+      if (c.provider === "ZOHO" && settings.mailProvider !== "ZOHO") continue;
       const slot = Math.floor(now.getTime() / (settings.pollMinutes * 60000));
       await enqueue("SYNC", `sync:${c.id}:${slot}`, { connectionId: c.id });
     }
@@ -172,7 +176,18 @@ export async function runJob(job: SalesJob) {
     });
   } catch (e) {
     const errorCode = safeError(e);
-    const retry = job.type !== "SEND" && job.attempts < 4;
+    const retry =
+      job.type !== "SEND" &&
+      job.attempts < 4 &&
+      ![
+        "AI_BUDGET_LIMIT",
+        "AI_EMAIL_LIMIT",
+        "AI_REQUEST_LIMIT",
+        "AI_CONFIG_REQUIRED",
+        "AI_PAUSED",
+        "INVALID_AI_OUTPUT",
+        "HUMAN_REVIEW_REQUIRED",
+      ].includes(errorCode);
     await db.salesJob.updateMany({
       where: { id: job.id, status: "RUNNING", leaseToken: job.leaseToken },
       data: {

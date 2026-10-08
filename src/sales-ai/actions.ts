@@ -7,7 +7,7 @@ import { requireSalesAI } from "./server/access";
 import { requireOwner } from "@/owner/auth";
 import * as service from "./server/service";
 import { safeError } from "./domain/security";
-import { classification } from "./domain/intelligence";
+import { classification, mailKind } from "./domain/intelligence";
 const field = (f: FormData, k: string) => String(f.get(k) ?? "");
 async function action(path: string, operation: () => Promise<unknown>) {
   let error = "";
@@ -34,7 +34,10 @@ export async function configuration(f: FormData) {
       liveAuthorized: false,
       mailProvider: field(f, "mailProvider"),
       aiProvider: field(f, "aiProvider"),
-      model: field(f, "model"),
+      model: "",
+      aiPaused: f.has("aiPaused"),
+      monthlyBudget: field(f, "monthlyBudget") || "10",
+      alertAt: field(f, "alertAt") || "5",
       approveRoles: f.getAll("approveRoles"),
       sendRoles: f.getAll("sendRoles"),
       retentionDays: field(f, "retentionDays"),
@@ -62,11 +65,18 @@ export async function threadAction(f: FormData) {
   const id = field(f, "id");
   await action("/ai/inbox/" + encodeURIComponent(id), async () => {
     switch (field(f, "operation")) {
+      case "analyze":
+        await service.conversation(u, id);
+        return service.analyzeConversation(id);
       case "generate":
         return service.generateDraft(
           u,
           id,
-          field(f, "language") === "ES" ? "ES" : "EN",
+          field(f, "language") === "ES"
+            ? "ES"
+            : field(f, "language") === "AUTO"
+              ? "AUTO"
+              : "EN",
           field(f, "purpose") === "FOLLOW_UP" ? "FOLLOW_UP" : "QUALIFY",
         );
       case "link":
@@ -95,6 +105,25 @@ export async function threadAction(f: FormData) {
             where: { id },
             data: {
               classification: category,
+              reviewedAt: new Date(),
+              ...(c.intelligence
+                ? {
+                    intelligence: {
+                      ...(c.intelligence as Record<
+                        string,
+                        import("@/generated/prisma/client").Prisma.JsonValue
+                      >),
+                      ...service.intelligence(c)!,
+                      mailKind: mailKind.parse(
+                        field(f, "mailKind") ||
+                          (category === "Not a sales lead"
+                            ? "OTHER"
+                            : "POTENTIAL_CUSTOMER"),
+                      ),
+                      needsHumanReview: false,
+                    },
+                  }
+                : {}),
               unread: f.has("unread"),
               processed: f.has("processed"),
             },
@@ -161,27 +190,62 @@ export async function connectZoho() {
   let url = "";
   try {
     const binding = randomBytes(32).toString("hex");
-    const state = await createOAuthState(u,binding);
+    const state = await createOAuthState(u, binding);
     const { digest } = await import("./domain/security");
-    const s = await db.mailOAuthState.findUniqueOrThrow({where:{stateHash:digest(state)}});
-    (await cookies()).set("flipas_zoho_binding",binding,{httpOnly:true,sameSite:"lax",secure:callbackUri().startsWith("https:"),path:"/",maxAge:600});
-    url = authorizeUrl(s.region,s.clientId,s.redirectUri,state);
-  } catch { redirect("/owner/ai?error=AUTH_REQUIRED"); }
+    const s = await db.mailOAuthState.findUniqueOrThrow({
+      where: { stateHash: digest(state) },
+    });
+    (await cookies()).set("flipas_zoho_binding", binding, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: callbackUri().startsWith("https:"),
+      path: "/",
+      maxAge: 600,
+    });
+    url = authorizeUrl(s.region, s.clientId, s.redirectUri, state);
+  } catch {
+    redirect("/owner/ai?error=AUTH_REQUIRED");
+  }
   redirect(url);
 }
 export async function selectMailbox(f: FormData) {
-  const u=await requireOwner();
-  const { selectZohoMailbox }=await import("./server/zoho");
-  await action("/owner/ai",()=>selectZohoMailbox(u,field(f,"grant"),field(f,"accountId"),field(f,"folderId"),f.has("consent")));
+  const u = await requireOwner();
+  const { selectZohoMailbox } = await import("./server/zoho");
+  await action("/owner/ai", () =>
+    selectZohoMailbox(
+      u,
+      field(f, "grant"),
+      field(f, "accountId"),
+      field(f, "folderId"),
+      f.has("consent"),
+    ),
+  );
 }
 export async function retryRevocation(f: FormData) {
-  const u=await requireOwner();
-  await action("/owner/ai",async()=>{
-    await db.$transaction(async tx=>{
-      const job=await tx.salesJob.findUniqueOrThrow({where:{id:field(f,"id")}});
-      if(!["REVOKE","REVOKE_GRANT"].includes(job.type) || job.status!=="FAILED") throw new Error("ACCESS_DENIED");
-      await tx.salesJob.updateMany({where:{id:job.id,status:"FAILED"},data:{status:"PENDING",attempts:0,runAt:new Date(),errorCode:null,lockedUntil:null}});
-      await service.audit(tx,u.id,"MAIL_REVOCATION_RETRIED",{jobId:job.id});
+  const u = await requireOwner();
+  await action("/owner/ai", async () => {
+    await db.$transaction(async (tx) => {
+      const job = await tx.salesJob.findUniqueOrThrow({
+        where: { id: field(f, "id") },
+      });
+      if (
+        !["REVOKE", "REVOKE_GRANT"].includes(job.type) ||
+        job.status !== "FAILED"
+      )
+        throw new Error("ACCESS_DENIED");
+      await tx.salesJob.updateMany({
+        where: { id: job.id, status: "FAILED" },
+        data: {
+          status: "PENDING",
+          attempts: 0,
+          runAt: new Date(),
+          errorCode: null,
+          lockedUntil: null,
+        },
+      });
+      await service.audit(tx, u.id, "MAIL_REVOCATION_RETRIED", {
+        jobId: job.id,
+      });
     });
   });
 }

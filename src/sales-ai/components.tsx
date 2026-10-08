@@ -5,6 +5,18 @@ export function Notice({ error, saved }: { error?: string; saved?: string }) {
         <p className="error" role="alert">
           {(
             {
+              AI_CONFIG_REQUIRED:
+                "Configure the private OpenAI server environment, model and verified prices first.",
+              AI_PAUSED:
+                "AI requests are paused by the OWNER. Mail sending remains disabled.",
+              AI_BUDGET_LIMIT:
+                "Monthly AI budget cannot cover this request. Review consumption and pending reservations in OWNER Console.",
+              AI_EMAIL_LIMIT:
+                "This email reached its four-request limit, including analysis and drafts. Continue manually.",
+              AI_REQUEST_LIMIT:
+                "This inquiry exceeds the request size limit. Review it manually.",
+              HUMAN_REVIEW_REQUIRED:
+                "Review and confirm this message’s commercial classification before creating a lead or reply.",
               NOT_COMMERCIAL:
                 "Review and confirm the commercial classification before creating a lead or reply.",
               MATCH_REQUIRES_CONFIRMATION:
@@ -26,7 +38,7 @@ export function Notice({ error, saved }: { error?: string; saved?: string }) {
               DELIVERY_ALREADY_ATTEMPTED:
                 "This delivery was already attempted. Verify the provider mailbox; do not retry an uncertain delivery.",
               AUTH_REQUIRED:
-                "Provide the required encrypted provider key and model, or reconnect an explicitly authorized mailbox.",
+                "Check the private server configuration or reconnect the authorized mailbox.",
               ACCESS_DENIED:
                 "Your role or assignment does not permit this action.",
               OUTBOUND_PAUSED: "Outbound mail is paused by the owner.",
