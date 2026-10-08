@@ -65,3 +65,15 @@ The four-request per-email cap still applies, including prior failures. If `AI_E
 ## Validation
 
 42 unit tests passed, including valid kitchen requests, strict schema requirements, incomplete output with observed tokens, invalid JSON, missing fields, fabricated evidence, refusal, malformed usage and safe HTTP error mapping. PostgreSQL integration verifies persisted error codes, safe audit diagnostics, token costs and uncertain reservations. Existing CRM/Estimator/OWNER/AI/Zoho regression suites, permission/CSRF HTTP checks, ESLint, TypeScript and production build are included in validation. Only synthetic keys and simulated OpenAI HTTP were used; no paid calls or real sends.
+
+## Follow-up after b907627: intermittent rejection
+
+A second defect was reproduced without OpenAI access: the adapter validated evidence against `minimalInquiry` (HTML converted to text, reduced and redacted), whereas `analyzeConversation` revalidated against the original body. For example, a quote spanning `<b>Tampa, FL</b>` is valid in the actual input but absent from the original HTML. The service then threw generic `INVALID_AI_OUTPUT` after the usage wrapper had already recorded success. Both boundaries now use the same reduced evidence view, with sender addresses resolved locally. Exact quote matching, missing-fact checks and sender binding remain enforced; invented evidence is still rejected.
+
+The Responses lifecycle is now checked before requiring completed-response usage/output. An incomplete or failed envelope with null usage is therefore correctly categorized, with uncertain reservations retained. Message-level incomplete status is rejected. Only the single assistant message supplies the JSON; reasoning content is excluded and tool calls still fail. Missing fields, invalid enums, invalid nonnullable nulls and additional properties remain failures under the strict schema.
+
+OWNER recent operations now display safe diagnostics next to the matching usage row, independently of the latest 50 audit events. Old generic rows are identified explicitly. Existing totals and old error codes do not disappear on restart or update. The six Mac operations alone cannot identify which responses failed at which stage; their unavailable raw responses are not reconstructed or requested.
+
+Before a paid test, run `npm run test` locally: all OpenAI unit fixtures use simulated HTTP. No migration or `.env` change is required. After restarting both processes, inspect the timestamp of a **new** operation rather than expecting the five old errors to change. If a new request is permitted by existing budget/per-email limits, test only one synthetic kitchen inquiry. Do not clear counters or bypass `AI_EMAIL_LIMIT`. Report only its safe code and validation stage if it fails.
+
+Follow-up validation covers the complete service persistence path for HTML evidence with a simulated SDK response, recursive required/additional-property schema checks, lifecycle failures without usage, incomplete assistant messages, reasoning exclusion, and rendered OWNER diagnostics for format/schema/incomplete/refusal. No real API calls, mail delivery or production data resets are used.

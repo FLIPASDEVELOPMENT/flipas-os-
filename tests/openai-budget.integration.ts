@@ -262,4 +262,66 @@ test("persisted reservations serialize concurrent requests, retain uncertain cos
     "COMPLETION",
   );
   assert.ok(!JSON.stringify(record).includes("unfinished"));
+  // Exercise the actual persistence boundary with a simulated SDK HTTP response.
+  const inbound = c.messages[0];
+  await db.mailMessage.update({
+    where: { id: inbound.id },
+    data: {
+      subject: "Kitchen Remodeling Estimate – Tampa, FL",
+      body: "Kitchen remodeling in <b>Tampa, FL</b>.",
+    },
+  });
+  await db.salesAISettings.update({
+    where: { id: "company" },
+    data: { aiProvider: "OPENAI", processingEnabled: true, aiPaused: false },
+  });
+  const simulatedFacts = {
+    ...facts,
+    email: null,
+    customerName: null,
+    phone: null,
+    budget: null,
+    timeline: null,
+    projectLocation: "Tampa, FL",
+    category: "Kitchen Remodeling",
+    mailKind: "POTENTIAL_CUSTOMER",
+    evidence: [
+      {
+        field: "projectLocation",
+        messageId: inbound.id,
+        quote: "Kitchen remodeling in  Tampa, FL ",
+      },
+    ],
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    assert.equal(String(input), "https://api.openai.com/v1/responses");
+    return Response.json({
+      status: "completed",
+      output: [
+        {
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [
+            { type: "output_text", text: JSON.stringify(simulatedFacts) },
+          ],
+        },
+      ],
+      usage: { input_tokens: 100, output_tokens: 10 },
+    });
+  };
+  try {
+    await service.analyzeConversation(c.id);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const persisted = await db.mailConversation.findUniqueOrThrow({
+    where: { id: c.id },
+  });
+  assert.equal(
+    (persisted.intelligence as { projectLocation: string }).projectLocation,
+    "Tampa, FL",
+  );
+  assert.equal(persisted.reviewedAt, null);
 });

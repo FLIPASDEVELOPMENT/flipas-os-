@@ -93,6 +93,15 @@ export default async function AIAdmin({
       errorCode: true,
     },
   });
+  const requestDiagnostics = await db.activity.findMany({
+    where: {
+      type: "AI_REQUEST_RECORDED",
+      OR: requests.map((r) => ({
+        metadata: { path: ["usageId"], equals: r.id },
+      })),
+    },
+    select: { metadata: true },
+  });
   const [s, connections, jobs, logs, usage, sends] = await Promise.all([
     db.salesAISettings.findUnique({
       where: { id: "company" },
@@ -237,6 +246,23 @@ export default async function AIAdmin({
                 <td>
                   {r.status}
                   {r.errorCode ? ` · ${r.errorCode}` : ""}
+                  {r.errorCode === "INVALID_AI_OUTPUT" && (
+                    <small>
+                      {" "}
+                      · Generic record: the original validation stage was not
+                      recorded.
+                    </small>
+                  )}
+                  <Diagnostic
+                    metadata={
+                      requestDiagnostics.find((a) => {
+                        const record = z
+                          .object({ usageId: z.string() })
+                          .safeParse(a.metadata);
+                        return record.success && record.data.usageId === r.id;
+                      })?.metadata
+                    }
+                  />
                 </td>
               </tr>
             ))}

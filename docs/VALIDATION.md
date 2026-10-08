@@ -56,3 +56,8 @@ Reservation tests cover concurrent attempts, full-budget rejection, four-call pe
 ## Structured-output correction — 2026-10-08
 
 42 unit tests cover strict API schema, literal evidence/unknown data for a synthetic Tampa kitchen inquiry, incomplete/invalid/refused responses, usage retention and distinct safe API/permission errors. OpenAI PostgreSQL integration checks persisted incomplete-response codes and redacted audit diagnostics. No real Mac execution logs or authenticated provider response were available; the prior generic error cannot identify that historical failure stage. See OPENAI_OUTPUT_DIAGNOSTICS.md. Financial limits and human approval/delivery restrictions are unchanged.
+
+
+### OpenAI intermittent-output follow-up (2026-10-08)
+
+45 unit tests passed. All 23 PostgreSQL regression/integration tests passed (CRM, Estimator, OWNER, AI, Zoho and OpenAI), including actual analysis persistence with HTML evidence and simulated SDK HTTP. HTTP smoke, Estimator, OWNER permissions, AI permissions/CSRF and rendered OWNER format/schema/incomplete/refusal diagnostics passed. ESLint, TypeScript and production build passed. Tests use disposable databases and simulated OpenAI responses; no paid API calls, real email sends, financial-limit changes or existing counter resets. Historical generic errors are preserved and cannot be retrospectively diagnosed.

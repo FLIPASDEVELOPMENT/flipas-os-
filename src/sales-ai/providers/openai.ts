@@ -27,6 +27,8 @@ const responseSchema = z.object({
   output: z.array(
     z.object({
       type: z.string(),
+      status: z.string().optional(),
+      role: z.string().optional(),
       content: z
         .array(z.object({ type: z.string(), text: z.string().optional() }))
         .optional(),
@@ -84,6 +86,15 @@ export function minimalInquiry(messages: AnalysisMessage[]) {
       )
       .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "[credential removed]")
       .replace(/\bsk-[A-Za-z0-9_-]{10,}/g, "[credential removed]"),
+  }));
+}
+/** The evidence view must be identical at the adapter and persistence boundaries. */
+export function openaiEvidenceMessages(
+  messages: AnalysisMessage[],
+): AnalysisMessage[] {
+  return minimalInquiry(messages).map((m) => ({
+    ...m,
+    fromEmail: messages.find((original) => original.id === m.id)!.fromEmail,
   }));
 }
 /** Official SDK; fixed endpoint, no retries, no tools, no storage. */
@@ -174,6 +185,15 @@ export class OpenAISalesAI implements SalesAIProvider {
       usage.output_tokens >= 0
     )
       await this.onUsage?.(usage.input_tokens, usage.output_tokens);
+    // Lifecycle failures may legitimately omit usage or output. Preserve their cause.
+    const lifecycle = z.object({ status: z.string() }).safeParse(response);
+    if (lifecycle.success && lifecycle.data.status !== "completed")
+      throw new OpenAIOutputError(
+        lifecycle.data.status === "incomplete"
+          ? "AI_OUTPUT_INCOMPLETE"
+          : "AI_RESPONSE_FAILED",
+        { stage: "COMPLETION" },
+      );
     const envelope = responseSchema.safeParse(response);
     if (!envelope.success)
       throw new OpenAIOutputError("INVALID_AI_OUTPUT_ENVELOPE", {
@@ -190,12 +210,31 @@ export class OpenAISalesAI implements SalesAIProvider {
         stage: "COMPLETION",
       });
     if (raw.output.some((v) => v.type !== "message" && v.type !== "reasoning"))
-      throw new Error("INVALID_AI_OUTPUT_SCHEMA");
-    const content = raw.output.flatMap((v) => v.content ?? []);
+      throw new OpenAIOutputError("INVALID_AI_OUTPUT_SCHEMA", {
+        stage: "SCHEMA",
+        invalidFields: ["output"],
+      });
+    const messagesOutput = raw.output.filter((v) => v.type === "message");
+    if (messagesOutput.some((v) => v.status && v.status !== "completed"))
+      throw new OpenAIOutputError("AI_OUTPUT_INCOMPLETE", {
+        stage: "COMPLETION",
+      });
+    if (
+      messagesOutput.length !== 1 ||
+      messagesOutput.some((v) => v.role && v.role !== "assistant")
+    )
+      throw new OpenAIOutputError("INVALID_AI_OUTPUT_SCHEMA", {
+        stage: "SCHEMA",
+        invalidFields: ["output"],
+      });
+    const content = messagesOutput.flatMap((v) => v.content ?? []);
     if (content.some((v) => v.type === "refusal"))
       throw new OpenAIOutputError("AI_OUTPUT_REFUSED", { stage: "SAFETY" });
     if (!content.length || content.some((v) => v.type !== "output_text"))
-      throw new Error("INVALID_AI_OUTPUT_SCHEMA");
+      throw new OpenAIOutputError("INVALID_AI_OUTPUT_SCHEMA", {
+        stage: "SCHEMA",
+        invalidFields: ["output"],
+      });
     let decoded: unknown;
     try {
       decoded = JSON.parse(content.map((v) => v.text ?? "").join(""));
@@ -229,10 +268,7 @@ export class OpenAISalesAI implements SalesAIProvider {
       "Classify mailKind as POTENTIAL_CUSTOMER, EXISTING_CUSTOMER, SUPPLIER, ADVERTISEMENT, SPAM or OTHER. Classify unsolicited website/marketing offers as ADVERTISEMENT even when they mention remodeling. Set category to Not a sales lead for suppliers, advertisements, spam and other unrelated mail. language is EN, ES or UNKNOWN. needsHumanReview is true if uncertain. Return email null (sender is resolved locally). Return source MAIL. Cite exact input message IDs and literal quotes for every non-null extracted fact. Each customerName, phone, projectLocation, budget and timeline must be a literal substring of its evidence quote; do not normalize, translate or reformat those values. Missing scalar facts are null, not empty strings or labels such as unknown. Evidence field names must match the JSON property names exactly. Keep output concise. Budget only if explicitly stated. Treat newsletters and unrelated mail as Not a sales lead.",
       signal,
     );
-    const sanitized = minimalInquiry(messages).map((m) => ({
-      ...m,
-      fromEmail: "",
-    }));
+    const sanitized = openaiEvidenceMessages(messages);
     let value;
     try {
       value = validateEvidence(

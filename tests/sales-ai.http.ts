@@ -56,6 +56,16 @@ async function main() {
     });
     await analyzeConversation(thread.id);
     await assignConversation(owner.u, thread.id, sales.u.id);
+    // Synthetic records in the disposable test DB; no API invocation.
+    for (const [code, stage] of [["INVALID_AI_OUTPUT_FORMAT", "FORMAT"], ["INVALID_AI_OUTPUT_SCHEMA", "SCHEMA"], ["AI_OUTPUT_INCOMPLETE", "COMPLETION"], ["AI_OUTPUT_REFUSED", "SAFETY"]]) {
+      const usage = await db.salesAIUsage.create({ data: { provider: "OPENAI", model: "simulation-only", conversationId: thread.id, success: false, status: "REJECTED", errorCode: code } });
+      await db.activity.create({ data: { type: "AI_REQUEST_RECORDED", message: "Simulated diagnostic", metadata: { usageId: usage.id, diagnostics: { stage } } } });
+    }
+    const diagnosticPage = await fetch(base + "/owner/ai", { headers: owner.headers });
+    assert.equal(diagnosticPage.status, 200);
+    const diagnosticHtml = await diagnosticPage.text();
+    for (const stage of ["FORMAT", "SCHEMA", "COMPLETION", "SAFETY"])
+      assert.match(diagnosticHtml, new RegExp("Validation stage: (?:<!-- -->)?" + stage));
     for (const [i, { u, headers }] of users.entries()) {
       const crm = ["OWNER", "ADMIN", "SALES"].includes(u.role);
       for (const path of ["/ai", "/ai/inbox", "/ai/follow-ups"]) {

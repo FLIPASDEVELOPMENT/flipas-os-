@@ -1,3 +1,4 @@
+import { openaiEvidenceMessages } from "../providers/openai";
 import { runAI } from "./budget";
 import { openaiConfig } from "./openai-config";
 import { zohoProvider } from "./zoho";
@@ -376,7 +377,10 @@ export async function analyzeConversation(id: string, signal?: AbortSignal) {
     provider.analyze(messages, signal),
   );
   signal?.throwIfAborted();
-  const info = validateEvidence(result.value, messages);
+  const info = validateEvidence(
+    result.value,
+    result.provider === "OPENAI" ? openaiEvidenceMessages(messages) : messages,
+  );
   await db.$transaction(async (tx) => {
     await tx.mailConversation.update({
       where: { id },

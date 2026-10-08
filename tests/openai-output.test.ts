@@ -5,8 +5,12 @@ import {
   OpenAISalesAI,
   openaiIntelligenceSchema,
   OpenAIOutputError,
+  openaiEvidenceMessages,
 } from "../src/sales-ai/providers/openai";
-import { mockIntelligence } from "../src/sales-ai/domain/intelligence";
+import {
+  validateEvidence,
+  mockIntelligence,
+} from "../src/sales-ai/domain/intelligence";
 import { safeError } from "../src/sales-ai/domain/security";
 const messages = [
   {
@@ -138,4 +142,93 @@ test("API errors preserve safe configuration/permission/rate classifications wit
     safeError(new Error("untrusted private provider details")),
     "PROVIDER_FAILURE",
   );
+});
+
+test("HTML evidence uses the same canonical text at both validation boundaries", async () => {
+  const htmlMessages = [
+    { ...messages[0], body: "I need kitchen remodeling in <b>Tampa, FL</b>." },
+  ];
+  const htmlFacts = {
+    ...facts,
+    evidence: [
+      {
+        field: "projectLocation",
+        messageId: messages[0].id,
+        quote: "kitchen remodeling in  Tampa, FL ",
+      },
+    ],
+  };
+  const result = await provider(envelope(htmlFacts)).analyze(htmlMessages);
+  assert.throws(
+    () => validateEvidence(result.value, htmlMessages),
+    /INVALID_AI_OUTPUT/,
+  );
+  assert.equal(
+    validateEvidence(result.value, openaiEvidenceMessages(htmlMessages))
+      .projectLocation,
+    "Tampa, FL",
+  );
+});
+test("lifecycle errors without usage, message incompleteness and reasoning remain distinct", async () => {
+  await assert.rejects(
+    provider({ status: "incomplete", usage: null }).analyze(messages),
+    /AI_OUTPUT_INCOMPLETE/,
+  );
+  await assert.rejects(
+    provider({ status: "failed", usage: null }).analyze(messages),
+    /AI_RESPONSE_FAILED/,
+  );
+  const partial = envelope(facts);
+  await assert.rejects(
+    provider({
+      ...partial,
+      output: [{ ...partial.output[0], status: "incomplete" }],
+    }).analyze(messages),
+    /AI_OUTPUT_INCOMPLETE/,
+  );
+  const reasoning = {
+    type: "reasoning",
+    content: [{ type: "output_text", text: "not an answer" }],
+  };
+  assert.equal(
+    (
+      await provider({
+        ...partial,
+        output: [reasoning, ...partial.output],
+      }).analyze(messages)
+    ).value.projectLocation,
+    "Tampa, FL",
+  );
+  await assert.rejects(
+    provider({ ...partial, output: [reasoning] }).analyze(messages),
+    /INVALID_AI_OUTPUT_SCHEMA/,
+  );
+});
+test("strict nested schema, nulls, enums and additional fields are enforced", async () => {
+  const schema = z.toJSONSchema(openaiIntelligenceSchema);
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== "object") return;
+    const node = value as Record<string, unknown>;
+    if (node.type === "object") {
+      assert.equal(node.additionalProperties, false);
+      assert.deepEqual(
+        [...(node.required as string[])].sort(),
+        Object.keys(node.properties as object).sort(),
+      );
+    }
+    for (const child of Object.values(node)) {
+      if (Array.isArray(child)) child.forEach(visit);
+      else visit(child);
+    }
+  };
+  visit(schema);
+  for (const invalid of [
+    { ...facts, mailKind: "LEAD" },
+    { ...facts, confidence: null },
+    { ...facts, extra: true },
+  ])
+    await assert.rejects(
+      provider(envelope(invalid)).analyze(messages),
+      /INVALID_AI_OUTPUT_SCHEMA/,
+    );
 });
