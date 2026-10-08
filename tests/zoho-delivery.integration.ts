@@ -163,9 +163,54 @@ test("Zoho sending OAuth lifecycle, security, exact approval and single-use tran
       ]);
       assert.deepEqual(values, ["write-token", "write-token"]);
       assert.equal(refreshes, 1);
-      await testWriteConnection(owner, c.id, client);
+      const passed = await testWriteConnection(owner, c.id, client);
+      assert.equal(passed.success, true);
+      assert.equal(passed.errorCode, null);
+      assert.ok(Date.parse(passed.checkedAt));
+      const originalAccounts = client.accounts.bind(client);
+      client.accounts = async () => {
+        throw new Error("cookie=secret; OAuth=private-token");
+      };
+      const failed = await testWriteConnection(owner, c.id, client);
+      assert.equal(failed.success, false);
+      assert.equal(failed.errorCode, "PROVIDER_FAILURE");
+      client.accounts = async () => [];
+      assert.equal(
+        (await testWriteConnection(owner, c.id, client)).errorCode,
+        "ACCOUNT_MISMATCH",
+      );
+      client.accounts = originalAccounts;
+      const events = await db.activity.findMany({
+        where: { type: "MAIL_WRITE_CONNECTION_TESTED" },
+      });
+      assert.equal(events.length, 3);
+      assert.ok(!JSON.stringify(events).includes("private-token"));
+      assert.ok(!JSON.stringify(events).includes("cookie="));
       assert.equal(posts, 0);
+      assert.equal(await db.mailSendAttempt.count(), 0);
+      assert.equal(
+        (
+          await db.salesAISettings.findUniqueOrThrow({
+            where: { id: "company" },
+          })
+        ).outboundPaused,
+        true,
+      );
+      assert.equal(
+        (
+          await db.mailWriteConsent.findUniqueOrThrow({
+            where: { connectionId: c.id },
+          })
+        ).sendEnabled,
+        false,
+      );
       await assert.rejects(testWriteConnection(sales, c.id, client));
+      assert.equal(
+        await db.activity.count({
+          where: { type: "MAIL_WRITE_CONNECTION_TESTED" },
+        }),
+        3,
+      );
       delete process.env.ZOHO_SEND_ENABLED;
       await assert.rejects(
         configureWriteDelivery(owner, c.id, true),

@@ -305,7 +305,11 @@ export async function writeConnectionAction(f: FormData) {
   );
   await action("/owner/ai", async () => {
     const operation = field(f, "operation");
-    if (operation === "test") return testWriteConnection(u, field(f, "id"));
+    if (operation === "test") {
+      const result = await testWriteConnection(u, field(f, "id"));
+      if (!result.success) throw new Error(result.errorCode ?? "PROVIDER_FAILURE");
+      return;
+    }
     if (operation === "disable")
       return configureWriteDelivery(u, field(f, "id"), false);
     if (operation !== "enable" || !f.has("deliveryConsent"))

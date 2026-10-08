@@ -1,7 +1,7 @@
 import type { User } from "@/generated/prisma/client";
 import { db } from "@/server/db";
 import { assertOwner } from "@/owner/service";
-import { decryptSecret, encryptSecret } from "../domain/security";
+import { decryptSecret, encryptSecret, safeError } from "../domain/security";
 import { writeScopes, realDeliveryEnabled } from "../domain/delivery";
 import { ZohoClient } from "../providers/zoho";
 import { tokenSet } from "./token-lifecycle";
@@ -158,7 +158,7 @@ export async function finishWriteOAuth(
   }
 }
 
-/** No POST: validate account access using the independent write token. */
+/** GET account access only; an expired OAuth token may be refreshed. Never sends mail. */
 export async function testWriteConnection(
   u: User,
   connectionId: string,
@@ -170,22 +170,35 @@ export async function testWriteConnection(
   });
   if (c.ownerId !== u.id || !c.connected || !c.consented)
     throw new Error("ACCESS_DENIED");
-  const token = await writeAccessToken(connectionId, client);
-  const accounts = await (client ?? new ZohoClient(c.region)).accounts(token);
-  if (
-    !accounts.some(
-      (a) =>
-        a.accountId === c.accountId &&
-        a.primaryEmailAddress.toLowerCase() === c.address.toLowerCase(),
+  let errorCode: string | null = null;
+  try {
+    const token = await writeAccessToken(connectionId, client);
+    const accounts = await (client ?? new ZohoClient(c.region)).accounts(token);
+    if (
+      !accounts.some(
+        (a) =>
+          a.accountId === c.accountId &&
+          a.primaryEmailAddress.toLowerCase() === c.address.toLowerCase(),
+      )
     )
-  )
-    throw new Error("ACCOUNT_MISMATCH");
+      throw new Error("ACCOUNT_MISMATCH");
+  } catch (e) {
+    // Persist only allowlisted codes, never provider bodies or credentials.
+    errorCode = safeError(e);
+  }
+  const result = {
+    success: errorCode === null,
+    errorCode,
+    checkedAt: new Date().toISOString(),
+  };
   await db.$transaction((tx) =>
     audit(tx, u.id, "MAIL_WRITE_CONNECTION_TESTED", {
       connectionId,
       delivery: false,
+      ...result,
     }),
   );
+  return result;
 }
 
 export async function writeAccessToken(

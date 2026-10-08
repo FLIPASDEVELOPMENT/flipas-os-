@@ -1,3 +1,4 @@
+import { accessTestMessage } from "@/sales-ai/domain/access-test";
 import { realDeliveryEnabled } from "@/sales-ai/domain/delivery";
 import { z } from "zod";
 import { budgetSummary } from "@/sales-ai/server/budget";
@@ -128,6 +129,18 @@ export default async function AIAdmin({
       },
     }),
   ]);
+  const accessTests = await Promise.all(
+    writeConsents.map((w) =>
+      db.activity.findFirst({
+        where: {
+          type: "MAIL_WRITE_CONNECTION_TESTED",
+          metadata: { path: ["connectionId"], equals: w.connectionId },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { metadata: true, createdAt: true },
+      }),
+    ),
+  );
   const requestDiagnostics = await db.activity.findMany({
     where: {
       type: "AI_REQUEST_RECORDED",
@@ -245,15 +258,27 @@ export default async function AIAdmin({
           Deployment gate:{" "}
           <strong>{realDeliveryEnabled() ? "enabled" : "disabled"}</strong> ·
           Emergency Pause:{" "}
-          <strong>{s?.outboundPaused !== false ? "PAUSED" : "not paused"}</strong>.
-          Connecting and testing access never sends email. Approval and Send are
-          separate actions.
+          <strong>
+            {s?.outboundPaused !== false ? "PAUSED" : "not paused"}
+          </strong>
+          . Connecting and testing access never sends email. Approval and Send
+          are separate actions.
         </p>
         {connections
           .filter((c) => c.provider === "ZOHO")
           .map((c) => {
             const w = writeConsents.find((w) => w.connectionId === c.id);
             const authorized = !!w?.authorizedAt && !w.revokedAt;
+            const accessTest =
+              accessTests[
+                writeConsents.findIndex((w) => w.connectionId === c.id)
+              ];
+            const testResult = z
+              .object({
+                success: z.boolean(),
+                errorCode: z.string().nullable(),
+              })
+              .safeParse(accessTest?.metadata);
             return (
               <div key={c.id} className="panel">
                 <h3>
@@ -301,6 +326,24 @@ export default async function AIAdmin({
                       Authorize sending in Zoho
                     </button>
                   </form>
+                ) : null}
+                {accessTest && testResult.success ? (
+                  <div
+                    role={testResult.data.success ? "status" : "alert"}
+                    className={testResult.data.success ? "ai-success" : "error"}
+                  >
+                    <strong>
+                      Access test{" "}
+                      {testResult.data.success ? "successful" : "failed"}
+                    </strong>{" "}
+                    · <DateTime date={accessTest.createdAt} />
+                    <p>
+                      {testResult.data.success
+                        ? "Zoho confirmed access to this exact mailbox. This does not test email delivery."
+                        : accessTestMessage(testResult.data.errorCode)}
+                    </p>
+                    <p>No email was sent. Emergency Pause is unchanged.</p>
+                  </div>
                 ) : null}
                 {authorized ? (
                   <>

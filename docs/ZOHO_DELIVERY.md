@@ -80,3 +80,11 @@ These are future steps, not performed by this implementation:
 ## Automated validation
 
 `npm run test` includes offline transport tests. `npm run test:zoho:delivery` requires an explicitly disposable PostgreSQL database ending `_test`, migrated first; never point it at the Mac development/customer database. Existing CRM, Estimator, OWNER, AI, Zoho read, OpenAI budget and commercial integration suites remain regression checks. No test obtains a real OAuth grant or sends real email. The synthetic transport gate is enabled only inside the isolated test process and removed afterward; deployment configuration remains unchanged.
+
+### Access test feedback
+
+`Test access — no email sent` calls `writeConnectionAction` → `testWriteConnection` → Zoho `GET /api/accounts`, using the independent sending grant. An expired OAuth token may be refreshed through the token endpoint; no Mail send/reply endpoint is called. Emergency Pause and mailbox delivery authorization are unchanged.
+
+The mailbox panel shows the latest **Access test successful/failed**, its recorded date/time in ET, and a readable result. Both outcomes are audited as `MAIL_WRITE_CONNECTION_TESTED` with actor, mailbox ID, success and an allowlisted error code. Raw provider responses, cookies and tokens are never included. This is an account-access check, not proof of delivery permission or email delivery. Historical audit entries without an explicit outcome are not presented as verified results; test again.
+
+A Next.js Server Action HTTP 200 is a transport response, not the Zoho result. Read the explicit result beside the button. Permission failures before authorized mailbox access are rejected, without creating a test record for another owner's mailbox. No database migration or environment change is required for this feedback fix.
