@@ -16,7 +16,7 @@ export function Notice({ error, saved }: { error?: string; saved?: string }) {
               INVALID_AI_OUTPUT_EVIDENCE:
                 "Extracted facts do not match literal email evidence. Review the email manually; no unsupported facts were saved.",
               INVALID_AI_OUTPUT_UNSAFE:
-                "The draft failed safety validation. No unsafe reply was saved.",
+                "The generated draft failed content safety checks, not a self-mail restriction. No reply was saved or sent. OWNER: review the latest DRAFT operation and Draft safety reason in AI Administration; older operations may have no detailed reason.",
               AI_OUTPUT_INCOMPLETE:
                 "OpenAI did not finish the response, possibly because of the output limit. No partial recommendations were saved. Review manually; do not repeatedly retry.",
               AI_OUTPUT_REFUSED:

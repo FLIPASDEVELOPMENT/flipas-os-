@@ -232,3 +232,27 @@ test("strict nested schema, nulls, enums and additional fields are enforced", as
       /INVALID_AI_OUTPUT_SCHEMA/,
     );
 });
+
+test("self-mail can generate a safe draft; safety failures distinguish content from format without echoing text", async () => {
+  const { replyContext, contextualReply } = await import("../src/sales-ai/domain/context");
+  const context = replyContext(mockIntelligence(messages), {}, "EN");
+  const selfMail = [{ ...messages[0], fromEmail: "owner@example.invalid" }];
+  const valid = contextualReply(context, "EN");
+  assert.equal((await provider(envelope({ body: valid })).draft(selfMail, "EN", "QUALIFY", context)).value, valid);
+  for (const [body, reason] of [
+    [valid + " What is your email?", "QUESTION_MISMATCH"],
+    ["Dear Invented Name, " + valid, "UNVERIFIED_GREETING"],
+    ["Your consultation is free. " + valid, "UNSUPPORTED_PROMISE"],
+    [valid + " Please share your budget.", "REPEATED_DATA_REQUEST"],
+    [valid + " We guarantee a price of $1.", "RESTRICTED_CONTENT"],
+  ]) {
+    await assert.rejects(provider(envelope({ body })).draft(selfMail, "EN", "QUALIFY", context), error => {
+      assert.ok(error instanceof OpenAIOutputError);
+      assert.equal(error.message, "INVALID_AI_OUTPUT_UNSAFE");
+      assert.equal(error.diagnostics.safetyReason, reason);
+      assert.ok(!JSON.stringify(error.diagnostics).includes(body));
+      return true;
+    });
+  }
+  await assert.rejects(provider(envelope({ unexpected: valid })).draft(selfMail, "EN", "QUALIFY", context), /INVALID_AI_OUTPUT_SCHEMA/);
+});

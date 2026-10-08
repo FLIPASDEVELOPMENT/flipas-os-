@@ -1,5 +1,6 @@
 import {
   hasForward,
+  ReplySafetyError,
   validateContextualReply,
   type ReplyContext,
   type VerifiedCRM,
@@ -76,6 +77,7 @@ export class OpenAIOutputError extends Error {
         | "SAFETY";
       invalidFields?: string[];
       httpStatus?: number;
+      safetyReason?: ReplySafetyError["reason"] | "RESTRICTED_CONTENT";
     },
   ) {
     super(code);
@@ -372,9 +374,10 @@ export class OpenAISalesAI implements SalesAIProvider {
           ? validateContextualReply(validateDraft(result.value.body), context)
           : validateDraft(result.value.body),
       };
-    } catch {
+    } catch (error) {
       throw new OpenAIOutputError("INVALID_AI_OUTPUT_UNSAFE", {
         stage: "SAFETY",
+        safetyReason: error instanceof ReplySafetyError ? error.reason : "RESTRICTED_CONTENT",
       });
     }
   }

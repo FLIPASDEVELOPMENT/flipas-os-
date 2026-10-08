@@ -92,3 +92,9 @@ A Next.js Server Action HTTP 200 is a transport response, not the Zoho result. R
 ### Disabled mailbox authorization button
 
 The button is disabled whenever the private server deployment gate `ZOHO_SEND_ENABLED` is absent or not exactly `true`. Consent alone cannot override this gate, and the server independently rejects forged enable requests with `LIVE_DISABLED`. The mailbox panel now explains this prerequisite beside the disabled button. OAuth access success proves account access only. Keep the gate disabled and Emergency Pause active during review; do not reconnect OAuth to resolve this disabled state. SELF_TEST continues to restrict the recipient to the connected mailbox address, allow only one attempt, and require exact approval plus a separate Send action.
+
+### Draft content rejection during a self-test
+
+Self-addressed inbound conversations may generate drafts after normal classification/review; generation does not send mail. `INVALID_AI_OUTPUT_UNSAFE` comes from draft content/context validation, not a same-mailbox loop check or JSON parsing. The adapter formerly discarded the specific safety reason. New rejected DRAFT operations retain an allowlisted `safetyReason` visible in OWNER AI Administration: length, exact selected questions, unsupported promises, repeated data requests, unverified greeting, or restricted content. No rejected text or provider body is logged. Existing historic SAFETY records cannot reconstruct the rejected content. Format/schema/incomplete/refusal errors remain distinct.
+
+Keep Emergency Pause checked and the deployment gate disabled while diagnosing. Review the most recent DRAFT operation; a new generation consumes the normal AI request/budget allowance, so avoid repeated retries. A safe manually edited draft remains subject to approval and separate Send controls. Do not change sender identity, contact classification or security limits to work around a rejection.

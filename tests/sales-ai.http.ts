@@ -77,7 +77,7 @@ async function main() {
         data: {
           type: "AI_REQUEST_RECORDED",
           message: "Simulated diagnostic",
-          metadata: { usageId: usage.id, diagnostics: { stage } },
+          metadata: { usageId: usage.id, diagnostics: { stage, ...(stage === "SAFETY" ? { safetyReason: "QUESTION_MISMATCH" } : {}) } },
         },
       });
     }
@@ -128,6 +128,7 @@ async function main() {
     assert.equal(diagnosticPage.status, 200);
     const diagnosticHtml = await diagnosticPage.text();
     assert.match(diagnosticHtml, /Separate Zoho sending authorization/);
+    assert.match(diagnosticHtml, /Required questions were changed, omitted or extra questions added/);
     assert.match(
       diagnosticHtml,
       /Deployment gate:(?:<!-- -->)? <strong>disabled<\/strong>/,

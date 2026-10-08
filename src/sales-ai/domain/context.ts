@@ -106,20 +106,25 @@ export function contextualReply(
       : "\n\nWe look forward to hearing from you.")
   );
 }
+export class ReplySafetyError extends Error {
+  constructor(readonly reason: "REPLY_TOO_LONG" | "QUESTION_MISMATCH" | "UNSUPPORTED_PROMISE" | "REPEATED_DATA_REQUEST" | "UNVERIFIED_GREETING") {
+    super("INVALID_AI_OUTPUT_UNSAFE");
+  }
+}
 export function validateContextualReply(body: string, context: ReplyContext) {
-  if (body.length > 1800) throw new Error("INVALID_AI_OUTPUT_UNSAFE");
+  if (body.length > 1800) throw new ReplySafetyError("REPLY_TOO_LONG");
   // Exact, locally selected questions prevent asking for already known facts.
   if (
     (body.match(/\?/g) ?? []).length !== context.questions.length ||
     !context.questions.every((q) => body.includes(q))
   )
-    throw new Error("INVALID_AI_OUTPUT_UNSAFE");
+    throw new ReplySafetyError("QUESTION_MISMATCH");
   if (
     /\b(?:free|complimentary|no[- ]cost|gratis|gratuit[ao]s?|sin costo|available|availability confirmed|we can start|we will complete|disponibles?|podemos comenzar|terminaremos)\b/i.test(
       body,
     )
   )
-    throw new Error("INVALID_AI_OUTPUT_UNSAFE");
+    throw new ReplySafetyError("UNSUPPORTED_PROMISE");
   const extra = context.questions.reduce(
     (text, question) => text.replace(question, ""),
     body,
@@ -129,7 +134,7 @@ export function validateContextualReply(body: string, context: ReplyContext) {
       extra,
     )
   )
-    throw new Error("INVALID_AI_OUTPUT_UNSAFE");
+    throw new ReplySafetyError("REPEATED_DATA_REQUEST");
   // Do not allow a generated greeting to introduce an unverified identity.
   const greeting = body.match(
     /^(?:Dear|Hi|Hello|Hola|Estimad[oa])\s+([^,\n.!?]+)[,!.]/i,
@@ -140,7 +145,7 @@ export function validateContextualReply(body: string, context: ReplyContext) {
       ?.toLowerCase()
       .includes(greeting[1].trim().toLowerCase())
   )
-    throw new Error("INVALID_AI_OUTPUT_UNSAFE");
+    throw new ReplySafetyError("UNVERIFIED_GREETING");
   return body;
 }
 export function followUpSuggestion(

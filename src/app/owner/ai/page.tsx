@@ -60,6 +60,7 @@ const diagnosticView = z.object({
       ]),
     )
     .optional(),
+  safetyReason: z.enum(["REPLY_TOO_LONG", "QUESTION_MISMATCH", "UNSUPPORTED_PROMISE", "REPEATED_DATA_REQUEST", "UNVERIFIED_GREETING", "RESTRICTED_CONTENT"]).optional(),
   httpStatus: z.number().int().min(400).max(599).optional(),
 });
 function Diagnostic({ metadata }: { metadata: unknown }) {
@@ -72,6 +73,14 @@ function Diagnostic({ metadata }: { metadata: unknown }) {
       {d.invalidFields?.length
         ? ` · Fields: ${d.invalidFields.join(", ")}`
         : ""}
+      {d.safetyReason ? ` · Draft safety: ${{
+        REPLY_TOO_LONG: "Reply exceeds the length limit",
+        QUESTION_MISMATCH: "Required questions were changed, omitted or extra questions added",
+        UNSUPPORTED_PROMISE: "Unapproved free-service or availability claim",
+        REPEATED_DATA_REQUEST: "Requests known or restricted contact/project information",
+        UNVERIFIED_GREETING: "Greeting includes an unverified name",
+        RESTRICTED_CONTENT: "Restricted pricing, contractual, link or sensitive content",
+      }[d.safetyReason]}` : ""}
       {d.httpStatus ? ` · HTTP ${d.httpStatus}` : ""}
     </span>
   );
