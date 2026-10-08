@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 const config: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // OAuth authorization codes must not enter the development request log.
+  logging: { incomingRequests: { ignore: [/\/api\/owner\/zoho\/callback/] } },
   async headers() {
     return [
       {

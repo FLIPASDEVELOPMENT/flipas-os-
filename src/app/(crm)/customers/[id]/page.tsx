@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCRM } from "@/server/auth";
+import { conversationScope } from "@/sales-ai/server/access";
 import { db } from "@/server/db";
 import { customerScope, leadScope, opportunityScope } from "@/server/crm";
 export default async function Customer({
@@ -31,6 +32,12 @@ export default async function Customer({
     },
   });
   if (!c) notFound();
+  const mail = await db.mailConversation.findMany({
+    where: { customerId: c.id, ...conversationScope(u) },
+    select: { id: true, subject: true, updatedAt: true },
+    orderBy: { updatedAt: "desc" },
+    take: 30,
+  });
   return (
     <>
       <p className="eyebrow">Customer record</p>
@@ -70,6 +77,18 @@ export default async function Customer({
           </p>
         </section>
       </div>
+      <section className="panel">
+        <h2>Customer email history</h2>
+        {mail.length === 0 && (
+          <p className="muted">No linked email conversations.</p>
+        )}
+        {mail.map((m) => (
+          <Link className="row" key={m.id} href={"/ai/inbox/" + m.id}>
+            <span>{m.subject}</span>
+            <small>{m.updatedAt.toISOString()}</small>
+          </Link>
+        ))}
+      </section>
       <section className="panel">
         <h2>Activity</h2>
         {c.activities.map((a) => (

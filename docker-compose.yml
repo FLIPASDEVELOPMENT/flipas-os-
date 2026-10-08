@@ -31,8 +31,34 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with db hostname}
       APP_ORIGIN: ${APP_ORIGIN:?Set APP_ORIGIN}
+      ZOHO_SEND_ENABLED: ${ZOHO_SEND_ENABLED:-false}
+      MAIL_ENCRYPTION_KEY: ${MAIL_ENCRYPTION_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_INPUT_USD_PER_MILLION: ${OPENAI_INPUT_USD_PER_MILLION:-}
+      OPENAI_OUTPUT_USD_PER_MILLION: ${OPENAI_OUTPUT_USD_PER_MILLION:-}
+      OPENAI_PRICING_VERIFIED_AT: ${OPENAI_PRICING_VERIFIED_AT:-}
     ports:
       - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+  sales-worker:
+    image: flipas-os-tools
+    build:
+      context: .
+      target: tools
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with db hostname}
+      ZOHO_SEND_ENABLED: ${ZOHO_SEND_ENABLED:-false}
+      MAIL_ENCRYPTION_KEY: ${MAIL_ENCRYPTION_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_INPUT_USD_PER_MILLION: ${OPENAI_INPUT_USD_PER_MILLION:-}
+      OPENAI_OUTPUT_USD_PER_MILLION: ${OPENAI_OUTPUT_USD_PER_MILLION:-}
+      OPENAI_PRICING_VERIFIED_AT: ${OPENAI_PRICING_VERIFIED_AT:-}
+    command: npm run worker:ai
     depends_on:
       migrate:
         condition: service_completed_successfully

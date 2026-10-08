@@ -77,6 +77,12 @@ enum Unit {
  FLAT
 }
 model User {
+ mailWriteConsents MailWriteConsent[]
+ financialPolicies FinancialPolicy[]
+ estimates Estimate[]
+ estimateApprovals EstimateApproval[]
+ pricingChanges CatalogPriceHistory[]
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -196,6 +202,12 @@ model ServiceCategory {
  items ServiceItem[]
 }
 model ServiceItem {
+ otherDirectCost Decimal @default(0) @db.Decimal(14,2)
+ targetMargin Decimal @default(0) @db.Decimal(7,4)
+ effectiveFrom DateTime @default(now())
+ effectiveTo DateTime?
+ history CatalogPriceHistory[]
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -214,6 +226,39 @@ model ServiceItem {
  lines EstimateLineItem[]
 }
 model Estimate {
+ financialPolicySnapshot Json @default("{}")
+ number String? @unique
+ seriesId String @default(cuid())
+ revision Int @default(1)
+ contentVersion Int @default(0)
+ creatorId String?
+ creator User? @relation(fields:[creatorId],references:[id])
+ category String @default("General Remodeling")
+ projectAddress String @default("")
+ scope String @default("")
+ notes String @default("")
+ inclusions String @default("")
+ exclusions String @default("")
+ durationDays Int?
+ expiresAt DateTime?
+ paymentSchedule Json @default("[]")
+ customerSnapshot Json @default("{}")
+ businessSnapshot Json @default("{}")
+ discountAmount Decimal @default(0) @db.Decimal(14,2)
+ discountRate Decimal @default(0) @db.Decimal(7,4)
+ significantDiscountThreshold Decimal @default(0) @db.Decimal(7,4)
+ taxTreatment String @default("UNREVIEWED")
+ taxRate Decimal @default(0) @db.Decimal(7,4)
+ taxAmount Decimal @default(0) @db.Decimal(14,2)
+ totalInvestment Decimal @default(0) @db.Decimal(14,2)
+ allocatedOverhead Decimal @default(0) @db.Decimal(14,2)
+ contributionProfit Decimal @default(0) @db.Decimal(14,2)
+ approvalReasons Json @default("[]")
+ acceptedAt DateTime?
+ acceptanceReference String?
+ approvals EstimateApproval[]
+ @@unique([seriesId,revision])
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -240,6 +285,17 @@ model EstimateSection {
  lines EstimateLineItem[]
 }
 model EstimateLineItem {
+ description String @default("")
+ position Int @default(0)
+ otherDirectCost Decimal @default(0) @db.Decimal(14,2)
+ targetMargin Decimal @default(0) @db.Decimal(7,4)
+ unitCost Decimal @default(0) @db.Decimal(14,2)
+ totalCost Decimal @default(0) @db.Decimal(14,2)
+ allocatedOverhead Decimal @default(0) @db.Decimal(14,2)
+ calculatedUnitPrice Decimal @default(0) @db.Decimal(14,2)
+ unitPrice Decimal @default(0) @db.Decimal(14,2)
+ taxable Boolean @default(false)
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -344,4 +400,310 @@ model ApprovalRequest {
  approvedBy User? @relation(fields: [approvedById], references: [id])
  decidedAt DateTime?
  reason String?
+}
+
+model CatalogPriceHistory {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ serviceItemId String
+ serviceItem ServiceItem @relation(fields:[serviceItemId],references:[id])
+ actorId String
+ actor User @relation(fields:[actorId],references:[id])
+ before Json
+ after Json
+ reason String
+ @@index([serviceItemId,createdAt])
+}
+model EstimateApproval {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ estimateId String
+ estimate Estimate @relation(fields:[estimateId],references:[id])
+ contentVersion Int
+ requesterId String
+ reasons Json
+ status String @default("PENDING")
+ reviewerId String?
+ reviewer User? @relation(fields:[reviewerId],references:[id])
+ rationale String?
+ decidedAt DateTime?
+ @@index([estimateId,status])
+}
+model EstimateTemplate {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ name String @unique
+ category String
+ sections Json
+ active Boolean @default(true)
+ developmentOnly Boolean @default(false)
+}
+model EstimatorSettings {
+ id String @id @default("company")
+ updatedAt DateTime @updatedAt
+ companyName String @default("Flipas Home Remodeling")
+ contactInfo String @default("")
+ brandingColor String @default("#172b30")
+ terms String @default("")
+ significantDiscountThreshold Decimal @default(0) @db.Decimal(7,4)
+}
+model EstimateCounter {
+ id String @id
+ value Int @default(0)
+}
+
+model FinancialPolicy {
+ id String @id @default(cuid())
+ version Int @unique
+ createdAt DateTime @default(now())
+ createdById String?
+ createdBy User? @relation(fields:[createdById],references:[id])
+ reason String
+ monthlyProjectedRevenue Decimal @db.Decimal(14,2)
+ monthlyFixedOverhead Decimal @db.Decimal(14,2)
+ targetMargin Decimal @db.Decimal(7,4)
+ minimumMargin Decimal @db.Decimal(7,4)
+ significantDiscountThreshold Decimal @db.Decimal(7,4)
+ head FinancialPolicyHead?
+}
+model FinancialPolicyHead {
+ id String @id @default("company")
+ policyId String @unique
+ policy FinancialPolicy @relation(fields:[policyId],references:[id])
+}
+
+model SalesAISettings {
+ id String @id @default("company")
+ updatedAt DateTime @updatedAt
+ processingEnabled Boolean @default(false)
+ outboundPaused Boolean @default(true)
+ liveAuthorized Boolean @default(false)
+ mailProvider String @default("MOCK")
+ aiProvider String @default("MOCK")
+ model String @default("")
+ aiPaused Boolean @default(false)
+ monthlyBudget Decimal @default(10) @db.Decimal(14,6)
+ alertAt Decimal @default(5) @db.Decimal(14,6)
+ aiKeyCipher String?
+ inputCostPerMillion Decimal? @db.Decimal(14,6)
+ outputCostPerMillion Decimal? @db.Decimal(14,6)
+ approveRoles Json @default("[\"OWNER\"]")
+ sendRoles Json @default("[\"OWNER\"]")
+ retentionDays Int @default(30)
+ pollMinutes Int @default(5)
+ oauthRegion String @default("US")
+ oauthClientId String @default("")
+ oauthSecretCipher String?
+}
+model MailConnection {
+ writeConsent MailWriteConsent?
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ provider String
+ ownerId String
+ region String @default("US")
+ accountId String
+ address String
+ folderId String?
+ consented Boolean @default(false)
+ tokenCipher String?
+ oauthClientId String @default("")
+ oauthSecretCipher String?
+ tokenExpiresAt DateTime?
+ connected Boolean @default(true)
+ lastSyncAt DateTime?
+ syncCursor String?
+ lastError String?
+ conversations MailConversation[]
+ @@unique([provider,accountId])
+}
+model MailConversation {
+ doNotContact Boolean @default(false)
+ crmVerifiedAt DateTime?
+ reviewedAt DateTime?
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ connectionId String
+ connection MailConnection @relation(fields:[connectionId],references:[id])
+ threadId String
+ subject String
+ senderEmail String
+ senderName String @default("")
+ assignedToId String
+ customerId String?
+ leadId String?
+ opportunityId String?
+ unread Boolean @default(true)
+ processed Boolean @default(false)
+ classification String @default("UNREVIEWED")
+ intelligence Json?
+ analyzedAt DateTime?
+ messages MailMessage[]
+ drafts SalesEmailDraft[]
+ followUps SalesFollowUp[]
+ @@unique([connectionId,threadId])
+ @@index([assignedToId,updatedAt])
+}
+model MailMessage {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ conversationId String
+ conversation MailConversation @relation(fields:[conversationId],references:[id])
+ providerMessageId String
+ receivedAt DateTime
+ direction String @default("INBOUND")
+ fromEmail String
+ toEmail String
+ subject String
+ body String
+ attachments Json @default("[]")
+ @@unique([conversationId,providerMessageId])
+}
+model SalesEmailDraft {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ conversationId String
+ conversation MailConversation @relation(fields:[conversationId],references:[id])
+ status String @default("GENERATED")
+ version Int @default(1)
+ approvedVersion Int?
+ approvedById String?
+ approvedAt DateTime?
+ requestedById String?
+ lastError String?
+ versions SalesEmailVersion[]
+ attempts MailSendAttempt[]
+}
+model SalesEmailVersion {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ draftId String
+ draft SalesEmailDraft @relation(fields:[draftId],references:[id])
+ version Int
+ recipient String
+ subject String
+ body String
+ bodyHash String
+ actorId String
+ source String
+ @@unique([draftId,version])
+}
+model MailSendAttempt {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ draftId String
+ draft SalesEmailDraft @relation(fields:[draftId],references:[id])
+ version Int
+ idempotencyKey String @unique
+ status String @default("STARTED")
+ actorId String
+ providerMessageId String?
+ errorCode String?
+ @@unique([draftId,version])
+}
+model SalesFollowUp {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ conversationId String
+ conversation MailConversation @relation(fields:[conversationId],references:[id])
+ assignedToId String
+ dueAt DateTime
+ reason String
+ completedAt DateTime?
+ suggested Boolean @default(true)
+ @@index([assignedToId,dueAt])
+}
+model SalesJob {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ type String
+ payload Json
+ key String @unique
+ status String @default("PENDING")
+ attempts Int @default(0)
+ runAt DateTime @default(now())
+ lockedUntil DateTime?
+ leaseToken String?
+ errorCode String?
+ completedAt DateTime?
+ @@index([status,runAt])
+}
+model MailOAuthGrant {
+  id String @id @default(cuid())
+  ownerId String
+  grantCipher String
+  expiresAt DateTime
+}
+
+model MailOAuthState {
+ writeConsentedAt DateTime?
+ expectedAccountId String?
+ expectedAddress String?
+ purpose String @default("READ")
+ connectionId String?
+ redirectUri String @default("")
+ id String @id @default(cuid())
+ stateHash String @unique
+ bindingHash String
+ userId String
+ region String
+ clientId String
+ secretCipher String
+ expiresAt DateTime
+ usedAt DateTime?
+}
+model SalesAIBudgetMonth {
+ id String @id
+ alertSentAt DateTime?
+}
+model SalesAIUsage {
+ operation String @default("ANALYZE")
+ monthKey String @default("")
+ messageId String @default("")
+ status String @default("LEGACY")
+ reservedCost Decimal @default(0) @db.Decimal(14,6)
+ inputRate Decimal? @db.Decimal(14,6)
+ outputRate Decimal? @db.Decimal(14,6)
+ @@index([monthKey, provider])
+ @@index([messageId, provider])
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ provider String
+ model String
+ conversationId String
+ inputTokens Int @default(0)
+ outputTokens Int @default(0)
+ estimatedCost Decimal? @db.Decimal(14,6)
+ success Boolean
+ errorCode String?
+}
+
+model MailWriteConsent {
+ id String @id @default(cuid())
+ connectionId String @unique
+ connection MailConnection @relation(fields: [connectionId], references: [id])
+ ownerId String
+ owner User @relation(fields: [ownerId], references: [id])
+ consentedAt DateTime
+ revokedAt DateTime?
+ region String
+ accountId String
+ address String
+ scopes Json
+ authorizedAt DateTime?
+ tokenCipher String?
+ tokenExpiresAt DateTime?
+ oauthClientId String @default("")
+ oauthSecretCipher String?
+ sendEnabled Boolean @default(false)
+ testOnly Boolean @default(true)
+ testAttemptAt DateTime?
+ lastError String?
 }

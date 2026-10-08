@@ -5,6 +5,16 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { bindMigrationAwareSqlAdapterFactory } from "@prisma/driver-adapter-utils";
 import { createRequire } from "node:module";
 import * as runtime from "@prisma/schema-engine-wasm/schema_engine_bg";
+// PostgreSQL must parse the entire script: splitting on semicolons breaks dollar-quoted functions.
+class MigrationAdapter extends PrismaPg {
+  async connect() {
+    const adapter = await super.connect();
+    adapter.executeScript = async (sql: string) => {
+      await adapter.executeRaw({ sql, args: [], argTypes: [] });
+    };
+    return adapter;
+  }
+}
 async function loadEngine(content: string) {
   const require = createRequire(import.meta.url);
   const bytes = await readFile(
@@ -22,7 +32,7 @@ async function loadEngine(content: string) {
     { datamodels: [["schema.prisma", content]] },
     () => {},
     bindMigrationAwareSqlAdapterFactory(
-      new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+      new MigrationAdapter({ connectionString: process.env.DATABASE_URL }),
     ),
   );
 }

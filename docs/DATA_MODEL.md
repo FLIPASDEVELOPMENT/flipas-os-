@@ -7,3 +7,26 @@ Phase 2 schema foundations: ServiceCategory/ServiceItem store database pricing; 
 Money is Decimal(14,2), quantity Decimal(12,3), ratio Decimal(7,4). Nullable values represent unknown data, not fabricated zero metrics. Referential actions restrict removal of business records; ephemeral sessions cascade with users. Services enforce cross-record customer consistency. Future accepted-estimate and project workflows must enforce it transactionally.
 
 Database CHECK constraints independently enforce lead score/budget ranges, opportunity probability/value bounds and service pricing bounds. They live in the integrity SQL migration because Prisma schema declarations do not represent these checks. Preserve them when generating future migrations.
+
+## Phase 2 estimator migration
+
+`202610070003_estimator` extends existing tables without removing data. ServiceItem adds other direct costs, target margin and effective dates; CatalogPriceHistory stores actor, reason and before/after prices. Estimate adds unique display number, series/revision, optimistic content version, creator, commercial terms, customer/business snapshots, discount/tax/overhead/contribution totals, review flags and acceptance evidence. Section and line positions control ordering; lines retain costs, ratios, units, quantities, calculated and manually overridden selling prices.
+
+EstimateApproval ties review to the exact content version, with requester/reviewer, flags, rationale and timestamps. EstimateCounter allocates numbers transactionally. EstimateTemplate stores configurable structured sections; EstimatorSettings stores reviewed business information and significant-discount threshold. Existing lead/opportunity/customer relationships are preserved; estimate opportunity references reach the lead. Project keeps unique opportunity and estimate links, tax-exclusive contract revenue and snapshotted estimated cost.
+
+Lifecycle: DRAFT → REVIEW → APPROVED → SENT → ACCEPTED; rejection is REVIEW → DRAFT. SENT means explicitly released, not automatically delivered. No frozen-content edits or deletions are allowed; revisions insert a new estimate. Application transactions enforce accepted/WON/customer consistency and idempotency before Project creation. Database triggers use dollar-quoted PostgreSQL functions; the migration runner passes complete SQL scripts through the adapter rather than splitting semicolons.
+
+## OWNER Console
+
+Migration 202610070004_owner_console adds immutable FinancialPolicy versions, FinancialPolicyHead active pointer and Estimate.financialPolicySnapshot. Policy versions capture monthly revenue/overhead plans, target/minimum gross margins, discount threshold, creator and reason. Initial owner-requested values are audited. No existing CRM, catalog or estimate data is removed. See OWNER_CONSOLE.md.
+
+## AI Sales models
+
+The additive 202610080001_ai_sales migration adds mail connections/threads/messages, settings, immutable draft versions, send attempts, follow-ups, jobs, OAuth state and usage. Scalar CRM/user foreign keys and lifecycle checks are enforced by SQL. No existing estimate snapshot or financial policy is changed.
+
+OpenAI budget: `SalesAIBudgetMonth` serializes reservations; `SalesAIUsage` records operation, month, message, token counts, frozen rates, estimated/reserved cost and outcome. OWNER settings default to $10 budget/$5 alert and include an independent AI pause. `MailConversation.reviewedAt` records explicit human review. Provider keys reside only in private server environment; migration clears legacy OpenAI DB keys.
+
+
+Phase 3 commercial safety adds `MailConversation.doNotContact`, `crmVerifiedAt` and `MailWriteConsent` (OWNER/account/region-bound preparation metadata initially; independent encrypted OAuth tokens added by the delivery migration below). Analysis JSON supports evidenced materials, property address and consultation availability with backwards-compatible defaults. See [commercial hardening](PHASE_3_COMMERCIAL_HARDENING.md).
+
+`202610080005_zoho_delivery` extends `MailWriteConsent` with encrypted independent sending credentials, expiry, authorization, mailbox enable/test mode and a durable single-test marker. `MailOAuthState` adds READ/SEND purpose, target connection and immutable account/address/consent snapshots. Read connection credentials and financial entities remain unchanged.

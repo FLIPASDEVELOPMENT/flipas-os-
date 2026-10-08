@@ -17,6 +17,6 @@ CMD ["node", "server.js"]
 FROM dependencies AS tools
 COPY prisma ./prisma
 COPY prisma.config.ts tsconfig.json ./
-COPY src/server/db.ts src/server/password.ts ./src/server/
+COPY src ./src
 COPY scripts ./scripts
 RUN npm run db:generate
