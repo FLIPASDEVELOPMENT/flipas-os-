@@ -186,12 +186,16 @@ test("OpenAI adapter validates structured output without tools/storage and trans
   assert.equal(request!.store, false);
   assert.deepEqual(request!.tools, []);
   assert.ok(!JSON.stringify(request).includes(key));
-  const format = (request!.text as { format: { type: string } }).format;
+  const format = (
+    request!.text as { format: { type: string; strict: boolean } }
+  ).format;
+  assert.equal(format.strict, true);
   assert.equal(format.type, "json_schema");
 });
 test("OpenAI malformed facts, refusals, tool calls, rate limits and injected reply content fail closed", async () => {
-  const { OpenAISalesAI, minimalInquiry } =
-    await import("../src/sales-ai/providers/openai");
+  const { OpenAISalesAI, minimalInquiry } = await import(
+    "../src/sales-ai/providers/openai"
+  );
   const key = randomBytes(16).toString("hex");
   const mock = (value: unknown, type = "message", status = 200) =>
     new OpenAISalesAI(key, "configured-test-model", async () =>

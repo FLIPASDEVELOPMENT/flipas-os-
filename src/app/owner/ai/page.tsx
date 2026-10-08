@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { budgetSummary } from "@/sales-ai/server/budget";
 import { openaiStatus } from "@/sales-ai/server/openai-config";
 import { callbackUri, readScopes } from "@/sales-ai/providers/zoho";
@@ -11,6 +12,62 @@ import {
   retryRevocation,
 } from "@/sales-ai/actions";
 import { DateTime, Mode, Notice } from "@/sales-ai/components";
+const diagnosticView = z.object({
+  stage: z.enum([
+    "API",
+    "ENVELOPE",
+    "COMPLETION",
+    "FORMAT",
+    "SCHEMA",
+    "EVIDENCE",
+    "SAFETY",
+  ]),
+  invalidFields: z
+    .array(
+      z.enum([
+        "response",
+        "status",
+        "output",
+        "usage",
+        "body",
+        "mailKind",
+        "language",
+        "needsHumanReview",
+        "category",
+        "source",
+        "customerName",
+        "email",
+        "phone",
+        "projectLocation",
+        "requestedServices",
+        "budget",
+        "timeline",
+        "urgency",
+        "missingInformation",
+        "summary",
+        "confidence",
+        "evidence",
+        "questions",
+        "recommendedTemplate",
+      ]),
+    )
+    .optional(),
+  httpStatus: z.number().int().min(400).max(599).optional(),
+});
+function Diagnostic({ metadata }: { metadata: unknown }) {
+  const wrapper = z.object({ diagnostics: diagnosticView }).safeParse(metadata);
+  if (!wrapper.success) return null;
+  const d = wrapper.data.diagnostics;
+  return (
+    <span className="muted">
+      · Validation stage: {d.stage}
+      {d.invalidFields?.length
+        ? ` · Fields: ${d.invalidFields.join(", ")}`
+        : ""}
+      {d.httpStatus ? ` · HTTP ${d.httpStatus}` : ""}
+    </span>
+  );
+}
 export default async function AIAdmin({
   searchParams,
 }: {
@@ -33,6 +90,7 @@ export default async function AIAdmin({
       outputTokens: true,
       estimatedCost: true,
       status: true,
+      errorCode: true,
     },
   });
   const [s, connections, jobs, logs, usage, sends] = await Promise.all([
@@ -176,7 +234,10 @@ export default async function AIAdmin({
                   {r.inputTokens} / {r.outputTokens}
                 </td>
                 <td>{r.estimatedCost?.toString() ?? "Reserved / uncertain"}</td>
-                <td>{r.status}</td>
+                <td>
+                  {r.status}
+                  {r.errorCode ? ` · ${r.errorCode}` : ""}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -503,7 +564,12 @@ export default async function AIAdmin({
         <h2>Audit history</h2>
         {logs.map((a) => (
           <div className="row" key={a.id}>
-            <span>{a.message}</span>
+            <span>
+              {a.message}
+              {a.type === "AI_REQUEST_RECORDED" && (
+                <Diagnostic metadata={a.metadata} />
+              )}
+            </span>
             <DateTime date={a.createdAt} />
           </div>
         ))}

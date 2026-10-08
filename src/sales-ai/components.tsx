@@ -5,6 +5,36 @@ export function Notice({ error, saved }: { error?: string; saved?: string }) {
         <p className="error" role="alert">
           {(
             {
+              INVALID_AI_OUTPUT:
+                "OpenAI output could not be validated. Review the operation error code in OWNER Console.",
+              INVALID_AI_OUTPUT_FORMAT:
+                "OpenAI returned invalid JSON. No recommendations were saved; review the operation in OWNER Console.",
+              INVALID_AI_OUTPUT_SCHEMA:
+                "OpenAI returned missing, invalid or unexpected fields. No recommendations were saved.",
+              INVALID_AI_OUTPUT_ENVELOPE:
+                "OpenAI returned an invalid response envelope or missing token usage. Review the operation in OWNER Console.",
+              INVALID_AI_OUTPUT_EVIDENCE:
+                "Extracted facts do not match literal email evidence. Review the email manually; no unsupported facts were saved.",
+              INVALID_AI_OUTPUT_UNSAFE:
+                "The draft failed safety validation. No unsafe reply was saved.",
+              AI_OUTPUT_INCOMPLETE:
+                "OpenAI did not finish the response, possibly because of the output limit. No partial recommendations were saved. Review manually; do not repeatedly retry.",
+              AI_OUTPUT_REFUSED:
+                "OpenAI declined this analysis. Review the message manually.",
+              AI_RESPONSE_FAILED:
+                "OpenAI could not complete the response. Review the operation status; no recommendations were saved.",
+              AI_API_PERMISSION_DENIED:
+                "OpenAI denied permission for this project or API operation. Check the private key’s project permissions.",
+              AI_MODEL_UNAVAILABLE:
+                "The configured model is unavailable to this OpenAI project. Verify OPENAI_MODEL and project access.",
+              AI_API_REQUEST_REJECTED:
+                "OpenAI rejected the API request. Verify model compatibility with Responses and structured JSON output.",
+              RATE_LIMIT:
+                "OpenAI rejected the request because of rate or quota limits. Review project usage and billing.",
+              JOB_TIMEOUT:
+                "The OpenAI request timed out. Its outcome and provider charge may be uncertain; review the reserved amount.",
+              PROVIDER_REJECTED:
+                "The provider returned an API error. Review the operation code in OWNER Console.",
               AI_CONFIG_REQUIRED:
                 "Configure the private OpenAI server environment, model and verified prices first.",
               AI_PAUSED:

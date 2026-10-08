@@ -3,6 +3,7 @@ import { z } from "zod";
 import { textOnly } from "../domain/security";
 import {
   intelligenceSchema,
+  mailKind,
   validateEvidence,
   AnalysisMessage,
 } from "../domain/intelligence";
@@ -12,9 +13,17 @@ import {
   SALES_AI_BOUNDARY,
   validateDraft,
 } from "./ai";
-const replySchema = z.object({ body: z.string().min(1).max(15000) });
+const replySchema = z.strictObject({ body: z.string().min(1).max(15000) });
+// Storage schema retains legacy defaults; API schema requires every field explicitly.
+export const openaiIntelligenceSchema = intelligenceSchema
+  .extend({
+    mailKind,
+    language: z.enum(["EN", "ES", "UNKNOWN"]),
+    needsHumanReview: z.boolean(),
+  })
+  .strict();
 const responseSchema = z.object({
-  status: z.literal("completed"),
+  status: z.string(),
   output: z.array(
     z.object({
       type: z.string(),
@@ -28,6 +37,36 @@ const responseSchema = z.object({
     output_tokens: z.number().int().nonnegative(),
   }),
 });
+export class OpenAIOutputError extends Error {
+  constructor(
+    code: string,
+    readonly diagnostics: {
+      stage:
+        | "API"
+        | "ENVELOPE"
+        | "COMPLETION"
+        | "FORMAT"
+        | "SCHEMA"
+        | "EVIDENCE"
+        | "SAFETY";
+      invalidFields?: string[];
+      httpStatus?: number;
+    },
+  ) {
+    super(code);
+  }
+}
+function fields(error: z.ZodError, allowed: string[]) {
+  return [
+    ...new Set(
+      error.issues.map((issue) =>
+        typeof issue.path[0] === "string" && allowed.includes(issue.path[0])
+          ? issue.path[0]
+          : "response",
+      ),
+    ),
+  ];
+}
 export type AITransport = (
   input: string,
   init: RequestInit,
@@ -91,17 +130,35 @@ export class OpenAISalesAI implements SalesAIProvider {
               type: "json_schema",
               name: "sales_recommendation",
               schema: z.toJSONSchema(schema),
-              strict: false,
+              strict: true,
             },
           },
         },
         { signal: abort },
       );
     } catch (e) {
+      if (e instanceof OpenAI.APIConnectionTimeoutError || abort.aborted)
+        throw new Error("JOB_TIMEOUT");
+      if (e instanceof OpenAI.APIConnectionError)
+        throw new Error("PROVIDER_FAILURE");
       if (e instanceof OpenAI.APIError) {
         if (e.status === 429) throw new Error("RATE_LIMIT");
-        if (e.status === 401 || e.status === 403)
-          throw new Error("AUTH_REQUIRED");
+        if (e.status === 401) throw new Error("AUTH_REQUIRED");
+        if (e.status === 403)
+          throw new OpenAIOutputError("AI_API_PERMISSION_DENIED", {
+            stage: "API",
+            httpStatus: 403,
+          });
+        if (e.status === 404)
+          throw new OpenAIOutputError("AI_MODEL_UNAVAILABLE", {
+            stage: "API",
+            httpStatus: 404,
+          });
+        if (e.status === 400)
+          throw new OpenAIOutputError("AI_API_REQUEST_REJECTED", {
+            stage: "API",
+            httpStatus: 400,
+          });
         throw new Error("PROVIDER_REJECTED");
       }
       throw new Error(abort.aborted ? "JOB_TIMEOUT" : "PROVIDER_FAILURE");
@@ -117,22 +174,46 @@ export class OpenAISalesAI implements SalesAIProvider {
       usage.output_tokens >= 0
     )
       await this.onUsage?.(usage.input_tokens, usage.output_tokens);
-    let raw: z.infer<typeof responseSchema>;
-    let value: T;
+    const envelope = responseSchema.safeParse(response);
+    if (!envelope.success)
+      throw new OpenAIOutputError("INVALID_AI_OUTPUT_ENVELOPE", {
+        stage: "ENVELOPE",
+        invalidFields: fields(envelope.error, ["status", "output", "usage"]),
+      });
+    const raw = envelope.data;
+    if (raw.status === "incomplete")
+      throw new OpenAIOutputError("AI_OUTPUT_INCOMPLETE", {
+        stage: "COMPLETION",
+      });
+    if (raw.status !== "completed")
+      throw new OpenAIOutputError("AI_RESPONSE_FAILED", {
+        stage: "COMPLETION",
+      });
+    if (raw.output.some((v) => v.type !== "message" && v.type !== "reasoning"))
+      throw new Error("INVALID_AI_OUTPUT_SCHEMA");
+    const content = raw.output.flatMap((v) => v.content ?? []);
+    if (content.some((v) => v.type === "refusal"))
+      throw new OpenAIOutputError("AI_OUTPUT_REFUSED", { stage: "SAFETY" });
+    if (!content.length || content.some((v) => v.type !== "output_text"))
+      throw new Error("INVALID_AI_OUTPUT_SCHEMA");
+    let decoded: unknown;
     try {
-      raw = responseSchema.parse(response);
-      if (
-        raw.output.some((v) => v.type !== "message" && v.type !== "reasoning")
-      )
-        throw new Error("Tool call rejected");
-      const content = raw.output.flatMap((v) => v.content ?? []);
-      if (content.some((v) => v.type !== "output_text"))
-        throw new Error("Model refusal");
-      const text = content.map((v) => v.text ?? "").join("");
-      value = schema.parse(JSON.parse(text));
+      decoded = JSON.parse(content.map((v) => v.text ?? "").join(""));
     } catch {
-      throw new Error("INVALID_AI_OUTPUT");
+      throw new OpenAIOutputError("INVALID_AI_OUTPUT_FORMAT", {
+        stage: "FORMAT",
+      });
     }
+    const parsed = schema.safeParse(decoded);
+    if (!parsed.success)
+      throw new OpenAIOutputError("INVALID_AI_OUTPUT_SCHEMA", {
+        stage: "SCHEMA",
+        invalidFields: fields(
+          parsed.error,
+          Object.keys(openaiIntelligenceSchema.shape).concat("body"),
+        ),
+      });
+    const value = parsed.data;
     return {
       value,
       provider: "OPENAI",
@@ -144,20 +225,27 @@ export class OpenAISalesAI implements SalesAIProvider {
   async analyze(messages: AnalysisMessage[], signal?: AbortSignal) {
     const result = await this.structured(
       messages,
-      intelligenceSchema,
-      "Classify mailKind as POTENTIAL_CUSTOMER, EXISTING_CUSTOMER, SUPPLIER, ADVERTISEMENT, SPAM or OTHER. Classify unsolicited website/marketing offers as ADVERTISEMENT even when they mention remodeling. Set category to Not a sales lead for suppliers, advertisements, spam and other unrelated mail. language is EN, ES or UNKNOWN. needsHumanReview is true if uncertain. Return email null (sender is resolved locally). Return source MAIL. Cite exact input message IDs and quotes for every non-null extracted fact. Budget only if explicitly stated. Treat newsletters and unrelated mail as Not a sales lead.",
+      openaiIntelligenceSchema,
+      "Classify mailKind as POTENTIAL_CUSTOMER, EXISTING_CUSTOMER, SUPPLIER, ADVERTISEMENT, SPAM or OTHER. Classify unsolicited website/marketing offers as ADVERTISEMENT even when they mention remodeling. Set category to Not a sales lead for suppliers, advertisements, spam and other unrelated mail. language is EN, ES or UNKNOWN. needsHumanReview is true if uncertain. Return email null (sender is resolved locally). Return source MAIL. Cite exact input message IDs and literal quotes for every non-null extracted fact. Each customerName, phone, projectLocation, budget and timeline must be a literal substring of its evidence quote; do not normalize, translate or reformat those values. Missing scalar facts are null, not empty strings or labels such as unknown. Evidence field names must match the JSON property names exactly. Keep output concise. Budget only if explicitly stated. Treat newsletters and unrelated mail as Not a sales lead.",
       signal,
     );
     const sanitized = minimalInquiry(messages).map((m) => ({
       ...m,
       fromEmail: "",
     }));
-    const value = validateEvidence(
-      result.value.email === null
-        ? result.value
-        : { ...result.value, email: null },
-      sanitized,
-    );
+    let value;
+    try {
+      value = validateEvidence(
+        result.value.email === null
+          ? result.value
+          : { ...result.value, email: null },
+        sanitized,
+      );
+    } catch {
+      throw new OpenAIOutputError("INVALID_AI_OUTPUT_EVIDENCE", {
+        stage: "EVIDENCE",
+      });
+    }
     value.email = messages.at(-1)?.fromEmail ?? null;
     if (
       value.urgency !== "UNKNOWN" &&
@@ -190,6 +278,12 @@ export class OpenAISalesAI implements SalesAIProvider {
       replySchema,
       `Draft only a short neutral ${purpose === "FOLLOW_UP" ? "follow-up" : "qualifying"} reply in ${language === "ES" ? "Spanish" : "English"}. Ask about missing scope, property address and timeline or visit availability. No prices, links, discounts, guarantees or contracts.`,
     );
-    return { ...result, value: validateDraft(result.value.body) };
+    try {
+      return { ...result, value: validateDraft(result.value.body) };
+    } catch {
+      throw new OpenAIOutputError("INVALID_AI_OUTPUT_UNSAFE", {
+        stage: "SAFETY",
+      });
+    }
   }
 }

@@ -186,6 +186,17 @@ export async function runJob(job: SalesJob) {
         "AI_CONFIG_REQUIRED",
         "AI_PAUSED",
         "INVALID_AI_OUTPUT",
+        "INVALID_AI_OUTPUT_FORMAT",
+        "INVALID_AI_OUTPUT_SCHEMA",
+        "INVALID_AI_OUTPUT_ENVELOPE",
+        "INVALID_AI_OUTPUT_EVIDENCE",
+        "INVALID_AI_OUTPUT_UNSAFE",
+        "AI_OUTPUT_INCOMPLETE",
+        "AI_OUTPUT_REFUSED",
+        "AI_RESPONSE_FAILED",
+        "AI_API_PERMISSION_DENIED",
+        "AI_MODEL_UNAVAILABLE",
+        "AI_API_REQUEST_REJECTED",
         "HUMAN_REVIEW_REQUIRED",
       ].includes(errorCode);
     await db.salesJob.updateMany({

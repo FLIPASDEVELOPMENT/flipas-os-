@@ -74,3 +74,5 @@ La clasificación y los borradores se probaron con respuestas HTTP simuladas; no
 ## Validación
 
 `npm run test`, `npm run test:openai` (base desechable terminada en `_test`), suites de integración CRM/Estimator/OWNER/AI/Zoho, lint, TypeScript y build. Las pruebas de OpenAI simulan respuestas del SDK y verifican concurrencia, límites, pausa, gastos de salida inválida, reservas inciertas, bloqueo de publicidad/revisión y autoridad del OWNER. Nunca ejecutes pruebas de integración contra tu base de datos de trabajo.
+
+Si aparece INVALID_AI_OUTPUT, consulta [diagnóstico y actualización](OPENAI_OUTPUT_DIAGNOSTICS.md). El adaptador exige JSON estricto; los nuevos errores distinguen formato, esquema, evidencias, respuestas incompletas, API y permisos. Las reglas financieras no cambian.

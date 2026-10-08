@@ -121,12 +121,13 @@ test("persisted reservations serialize concurrent requests, retain uncertain cos
         throw new Error("simulated timeout");
       },
     ),
-    /PROVIDER_FAILURE/,
+    /JOB_TIMEOUT/,
   );
   const timeout = await db.salesAIUsage.findFirstOrThrow({
     where: { messageId: "timeout" },
   });
   assert.equal(timeout.status, "UNCERTAIN");
+  assert.equal(timeout.errorCode, "JOB_TIMEOUT");
   assert.equal(timeout.estimatedCost, null);
   assert.equal((await budgetSummary()).reserved, "0.026400");
   await db.salesAIUsage.create({
@@ -219,4 +220,46 @@ test("persisted reservations serialize concurrent requests, retain uncertain cos
     },
   });
   await assert.rejects(service.configureAI(sales, {}));
+  await db.salesAISettings.update({
+    where: { id: "company" },
+    data: { monthlyBudget: 20 },
+  });
+  await assert.rejects(
+    runAI(
+      "simulation",
+      "ANALYZE",
+      mail("incomplete-output"),
+      (p) => p.analyze(mail("incomplete-output")),
+      async () =>
+        Response.json({
+          status: "incomplete",
+          output: [
+            {
+              type: "message",
+              content: [{ type: "output_text", text: "{unfinished" }],
+            },
+          ],
+          usage: { input_tokens: 100, output_tokens: 10 },
+        }),
+    ),
+    /AI_OUTPUT_INCOMPLETE/,
+  );
+  const incomplete = await db.salesAIUsage.findFirstOrThrow({
+    where: { messageId: "incomplete-output" },
+  });
+  assert.equal(incomplete.errorCode, "AI_OUTPUT_INCOMPLETE");
+  assert.equal(incomplete.status, "REJECTED");
+  assert.equal(incomplete.inputTokens, 100);
+  assert.equal(incomplete.estimatedCost?.toString(), "0.000056");
+  const record = await db.activity.findFirstOrThrow({
+    where: {
+      type: "AI_REQUEST_RECORDED",
+      metadata: { path: ["usageId"], equals: incomplete.id },
+    },
+  });
+  assert.equal(
+    (record.metadata as { diagnostics: { stage: string } }).diagnostics.stage,
+    "COMPLETION",
+  );
+  assert.ok(!JSON.stringify(record).includes("unfinished"));
 });

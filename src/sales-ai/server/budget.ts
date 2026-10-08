@@ -1,6 +1,11 @@
+import { safeError } from "../domain/security";
 import Decimal from "decimal.js";
 import { db } from "@/server/db";
-import { minimalInquiry, OpenAISalesAI } from "../providers/openai";
+import {
+  minimalInquiry,
+  OpenAISalesAI,
+  OpenAIOutputError,
+} from "../providers/openai";
 import { MockSalesAI, type AIResult } from "../providers/ai";
 import type { AnalysisMessage } from "../domain/intelligence";
 import { openaiConfig } from "./openai-config";
@@ -164,6 +169,8 @@ export async function runAI<T>(
     });
   });
   let observed = false;
+  let failureCode: string | null = null;
+  let diagnostics: OpenAIOutputError["diagnostics"] | null = null;
   const provider = new OpenAISalesAI(
     config.key,
     config.model,
@@ -194,15 +201,18 @@ export async function runAI<T>(
       data: { success: true, status: "SUCCEEDED" },
     });
     return result;
-  } catch {
+  } catch (error) {
+    const errorCode = safeError(error);
+    failureCode = errorCode;
+    if (error instanceof OpenAIOutputError) diagnostics = error.diagnostics;
     await db.salesAIUsage.update({
       where: { id: usage.id },
       data: {
         status: observed ? "REJECTED" : "UNCERTAIN",
-        errorCode: observed ? "INVALID_AI_OUTPUT" : "PROVIDER_FAILURE",
+        errorCode,
       },
     });
-    throw new Error(observed ? "INVALID_AI_OUTPUT" : "PROVIDER_FAILURE");
+    throw new Error(errorCode);
   } finally {
     const summary = await budgetSummary();
     await db.$transaction(async (tx) => {
@@ -236,6 +246,8 @@ export async function runAI<T>(
             operation,
             model: config.model,
             pricingVerifiedAt: config.verifiedAt,
+            errorCode: failureCode,
+            diagnostics,
           },
         },
       });
