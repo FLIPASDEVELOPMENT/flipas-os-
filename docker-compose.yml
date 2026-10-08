@@ -31,6 +31,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with db hostname}
       APP_ORIGIN: ${APP_ORIGIN:?Set APP_ORIGIN}
+      ZOHO_SEND_ENABLED: ${ZOHO_SEND_ENABLED:-false}
       MAIL_ENCRYPTION_KEY: ${MAIL_ENCRYPTION_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
@@ -50,6 +51,7 @@ services:
       target: tools
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with db hostname}
+      ZOHO_SEND_ENABLED: ${ZOHO_SEND_ENABLED:-false}
       MAIL_ENCRYPTION_KEY: ${MAIL_ENCRYPTION_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}

@@ -1,6 +1,6 @@
 # OpenAI para FLIPAS OS — prueba local de Fase 3
 
-La rama es `feature/phase-3-ai-sales`. Se conserva Zoho Mail en modo lectura, el CRM, el Estimator y las aprobaciones. **No hay envío real de correo.** MOCK sigue disponible y es el valor inicial. La integración usa el SDK oficial `openai@7.30.1`, API Responses, endpoint fijo `https://api.openai.com/v1/responses`, sin herramientas, sin almacenamiento de respuestas (`store: false`) y sin reintentos del SDK.
+La rama es `feature/phase-3-ai-sales`. Se conserva la recepción de Zoho Mail, el CRM, el Estimator y las aprobaciones. El envío real está implementado con autorización separada, aprobación humana y pausa; permanece bloqueado por defecto. Para una prueba de envío explícitamente autorizada, consulta [ZOHO_DELIVERY.md](ZOHO_DELIVERY.md). MOCK sigue disponible y es el valor inicial. La integración usa el SDK oficial `openai@7.30.1`, API Responses, endpoint fijo `https://api.openai.com/v1/responses`, sin herramientas, sin almacenamiento de respuestas (`store: false`) y sin reintentos del SDK.
 
 ## Configuración en tu Mac, un paso cada vez
 

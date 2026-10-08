@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
     "build": "next build && node scripts/copy-static.mjs",
-    "start": "node .next/standalone/server.js",
+    "start": "node --env-file-if-exists=.env .next/standalone/server.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
