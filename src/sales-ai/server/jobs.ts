@@ -1,3 +1,4 @@
+import { revokeWriteTokens } from "./write-oauth";
 import { revokeZohoConnection, revokePendingGrant } from "./zoho";
 import { randomUUID } from "node:crypto";
 import { db } from "@/server/db";
@@ -98,6 +99,9 @@ export async function runJob(job: SalesJob) {
   try {
     await withDeadline(async (signal) => {
       switch (job.type) {
+        case "REVOKE_WRITE":
+          await revokeWriteTokens(String(p.connectionId));
+          break;
         case "REVOKE_GRANT":
           await revokePendingGrant(String(p.grantId));
           break;

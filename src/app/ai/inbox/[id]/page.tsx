@@ -71,10 +71,28 @@ export default async function Thread({
         : Promise.resolve([]),
     ]);
   const suggestion = await pipelineSuggestion(u, id).catch(() => null);
-  const blockedDelivery = deliveryBlock(
-    c.connection.provider,
-    settings?.outboundPaused ?? true,
-  );
+  const write = await db.mailWriteConsent.findUnique({
+    where: { connectionId: c.connectionId },
+    select: {
+      authorizedAt: true,
+      revokedAt: true,
+      sendEnabled: true,
+      testOnly: true,
+      testAttemptAt: true,
+    },
+  });
+  const blockedDelivery =
+    deliveryBlock(
+      c.connection.provider,
+      settings?.outboundPaused ?? true,
+      !!write?.authorizedAt && !write.revokedAt,
+      write?.sendEnabled ?? false,
+    ) ??
+    (write?.testOnly &&
+    (write.testAttemptAt ||
+      c.senderEmail.toLowerCase() !== c.connection.address.toLowerCase())
+      ? "TEST_RECIPIENT_REQUIRED"
+      : null);
   return (
     <>
       <div className="estimator-toolbar">
@@ -428,7 +446,8 @@ export default async function Thread({
             <article key={d.id} className="ai-section">
               <div className="row">
                 <strong>
-                  Version {d.version} <span className="badge">{d.status}</span>
+                  Draft <code>{d.id}</code> · Version {d.version}{" "}
+                  <span className="badge">{d.status}</span>
                 </strong>
                 <small>
                   {d.approvedAt ? (
@@ -523,7 +542,11 @@ export default async function Thread({
                   {d.approvedVersion} is saved, but delivery is blocked:{" "}
                   {blockedDelivery === "OUTBOUND_PAUSED"
                     ? "OWNER emergency pause is active."
-                    : "Separate Zoho write authorization is missing and real delivery remains locked. Reading consent does not permit sending."}
+                    : blockedDelivery === "WRITE_AUTH_REQUIRED"
+                      ? "Separate Zoho sending OAuth authorization is missing or revoked. Reading consent does not permit sending."
+                      : blockedDelivery === "TEST_RECIPIENT_REQUIRED"
+                        ? "Self-addressed test mode requires this mailbox's own address and permits only one attempt."
+                        : "Deployment or mailbox delivery is disabled. OWNER must explicitly enable both before Send."}
                 </p>
               )}
               {c.doNotContact && (
@@ -533,7 +556,7 @@ export default async function Thread({
               )}
               {d.attempts.map((a) => (
                 <p key={a.id} className="muted">
-                  Version {a.version} · Delivery {a.status} ·{" "}
+                  Draft {d.id} · Version {a.version} · Delivery {a.status} ·{" "}
                   {a.providerMessageId ?? "No confirmed provider identifier"}
                 </p>
               ))}

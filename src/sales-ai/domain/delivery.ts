@@ -1,5 +1,7 @@
-/** Approval is not delivery permission. Production mail stays locked in this release. */
-export const REAL_EMAIL_DELIVERY_ENABLED = false;
+/** Server-only deployment gate. Missing/false never enables network delivery. */
+export function realDeliveryEnabled() {
+  return process.env.ZOHO_SEND_ENABLED === "true";
+}
 export const writeScopes = [
   "ZohoMail.accounts.READ",
   "ZohoMail.messages.CREATE",
@@ -7,10 +9,13 @@ export const writeScopes = [
 export function deliveryBlock(
   provider: string,
   paused: boolean,
-  writeConsented = false,
+  writeAuthorized = false,
+  mailboxEnabled = false,
 ) {
   if (paused) return "OUTBOUND_PAUSED";
-  if (provider !== "MOCK")
-    return writeConsented ? "LIVE_DISABLED" : "WRITE_AUTH_REQUIRED";
+  if (provider !== "MOCK") {
+    if (!writeAuthorized) return "WRITE_AUTH_REQUIRED";
+    if (!realDeliveryEnabled() || !mailboxEnabled) return "LIVE_DISABLED";
+  }
   return null;
 }

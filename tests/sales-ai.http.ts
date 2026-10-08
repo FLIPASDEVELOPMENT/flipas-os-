@@ -61,11 +61,27 @@ async function main() {
       const usage = await db.salesAIUsage.create({ data: { provider: "OPENAI", model: "simulation-only", conversationId: thread.id, success: false, status: "REJECTED", errorCode: code } });
       await db.activity.create({ data: { type: "AI_REQUEST_RECORDED", message: "Simulated diagnostic", metadata: { usageId: usage.id, diagnostics: { stage } } } });
     }
+    const sendingMailbox=await db.mailConnection.create({data:{provider:"ZOHO",ownerId:owner.u.id,region:"US",accountId:"99001",address:"owner-self@example.invalid",connected:true,consented:true}});
+    await db.mailWriteConsent.create({data:{connectionId:sendingMailbox.id,ownerId:owner.u.id,region:"US",accountId:sendingMailbox.accountId,address:sendingMailbox.address,
+      consentedAt:new Date(),authorizedAt:new Date(),scopes:["ZohoMail.accounts.READ","ZohoMail.messages.CREATE"],sendEnabled:false,testOnly:true,
+      tokenCipher:encryptSecret("synthetic-write-grant"),oauthSecretCipher:encryptSecret("synthetic-write-secret")}});
     const diagnosticPage = await fetch(base + "/owner/ai", { headers: owner.headers });
     assert.equal(diagnosticPage.status, 200);
     const diagnosticHtml = await diagnosticPage.text();
-    assert.match(diagnosticHtml, /Separate Zoho sending consent/);
-    assert.match(diagnosticHtml, /OAuth write NOT configured|This release cannot request a write token/);
+    assert.match(diagnosticHtml, /Separate Zoho sending authorization/);
+    assert.match(diagnosticHtml, /Deployment gate:(?:<!-- -->)? <strong>disabled<\/strong>/);
+    assert.match(diagnosticHtml,/One self-addressed test only/);
+    assert.ok(!diagnosticHtml.includes("synthetic-write-secret") && !diagnosticHtml.includes("synthetic-write-grant"));
+    const deliveryForm=[...diagnosticHtml.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/g)].map(m=>m[0]).find(f=>f.includes("deliveryConsent"));
+    assert.ok(deliveryForm);assert.match(deliveryForm,/<button[^>]*disabled/);
+    const deliveryAction=deliveryForm.match(/name="(\$ACTION_ID_[^"]+)"/);assert.ok(deliveryAction);
+    const activation=new FormData();activation.set(deliveryAction[1],"");activation.set("id",sendingMailbox.id);
+    activation.set("operation","enable");activation.set("mode","SELF_TEST");activation.set("deliveryConsent","on");
+    const deniedActivation=await fetch(base+"/owner/ai",{method:"POST",headers:{...sales.headers,Origin:base},body:activation,redirect:"manual"});
+    assert.equal(deniedActivation.status,404,"SALES cannot forge OWNER sending activation");
+    const stillPaused=await fetch(base+"/owner/ai",{method:"POST",headers:{...owner.headers,Origin:base},body:activation,redirect:"manual"});
+    assert.equal(stillPaused.status,303);assert.equal(stillPaused.headers.get("location"),"/owner/ai?error=LIVE_DISABLED");
+    assert.equal((await db.mailWriteConsent.findUniqueOrThrow({where:{connectionId:sendingMailbox.id}})).sendEnabled,false);
     for (const stage of ["FORMAT", "SCHEMA", "COMPLETION", "SAFETY"])
       assert.match(diagnosticHtml, new RegExp("Validation stage: (?:<!-- -->)?" + stage));
     for (const [i, { u, headers }] of users.entries()) {
@@ -91,7 +107,7 @@ async function main() {
       assert.equal(setup.status,u.role==="OWNER"?200:404,u.role+" Zoho setup");
       const callback=await fetch(base+"/api/owner/zoho/callback?state=invalid",{headers,redirect:"manual"});
       assert.equal(callback.status,u.role==="OWNER"?303:403,u.role+" Zoho callback");
-      if(u.role==="OWNER") assert.equal(callback.headers.get("location"),"/owner/ai?error=AUTH_REQUIRED");
+      if(u.role==="OWNER") assert.equal(callback.headers.get("location"),"/owner/ai?error=ACCESS_DENIED");
       const c = await fetch(base + "/ai/inbox/" + thread.id, {
         headers,
         redirect: "manual",

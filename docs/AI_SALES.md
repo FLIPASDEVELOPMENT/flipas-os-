@@ -1,6 +1,6 @@
 # Phase 3 — AI Sales internal checkpoint
 
-Status: AI Sales and the read-only Zoho Mail connector are implemented on `feature/phase-3-ai-sales`. Official Zoho Mail/OAuth documentation is now accessible and was verified on 2026-10-08. OAuth, refresh, selected-folder import and revocation are tested with simulated HTTP and PostgreSQL; no real account was authenticated. **Real email sending remains disabled in all backend layers.** MOCK remains the default provider, and actual reading requires explicit OWNER configuration/consent. No main merge or production deployment. See [Zoho Mail setup and official contracts](ZOHO_MAIL.md).
+Status: AI Sales and the read-only Zoho Mail connector are implemented on `feature/phase-3-ai-sales`. Official Zoho Mail/OAuth documentation is now accessible and was verified on 2026-10-08. OAuth, refresh, selected-folder import and revocation are tested with simulated HTTP and PostgreSQL; no real account was authenticated. **Real delivery starts disabled; separate sending OAuth, mailbox authorization and the deployment gate are described in ZOHO_DELIVERY.md.** MOCK remains the default provider, and actual reading requires explicit OWNER configuration/consent. No main merge or production deployment. See [Zoho Mail setup and official contracts](ZOHO_MAIL.md).
 
 ## What you can inspect
 
@@ -75,7 +75,7 @@ docker compose up -d app sales-worker
 
 ## OWNER setup for read-only Zoho
 
-Follow [ZOHO_MAIL.md](ZOHO_MAIL.md) for official endpoint/scope evidence, exact callback registration and private configuration requirements. Migration `202610080002_zoho_readonly` adds encrypted, short-lived `MailOAuthGrant` staging and stores the callback URI in OAuth state. REVOKE/REVOKE_GRANT jobs handle disconnected/unfinished authorization; failed revocations have OWNER retry controls. Real sending cannot be enabled with settings or approval. No external credentials are requested in chat.
+Follow [ZOHO_MAIL.md](ZOHO_MAIL.md) for official endpoint/scope evidence, exact callback registration and private configuration requirements. Migration `202610080002_zoho_readonly` adds encrypted, short-lived `MailOAuthGrant` staging and stores the callback URI in OAuth state. REVOKE/REVOKE_GRANT jobs handle disconnected/unfinished authorization; failed revocations have OWNER retry controls. Sending now has a separate, default-disabled OAuth/transport implementation described in ZOHO_DELIVERY.md; reading authorization and approval alone never enable it. No external credentials are requested in chat.
 
 ## OpenAI engine and monthly budget
 

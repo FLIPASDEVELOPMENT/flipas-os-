@@ -172,3 +172,5 @@ See [docs/AI_SALES.md](docs/AI_SALES.md) for `/ai`, the inbox, approval flow, Po
 OpenAI Phase 3: [private server setup, monthly budget and first real classification](docs/OPENAI_SETUP.md). Configure securely with `npm run env:openai`; MOCK remains available and real email sending stays disabled.
 
 Phase 3 commercial context, safe sending preparation and Mac verification: [Commercial hardening](docs/PHASE_3_COMMERCIAL_HARDENING.md).
+
+Zoho sending OAuth, safety controls and the paused OWNER self-test procedure: [ZOHO_DELIVERY.md](docs/ZOHO_DELIVERY.md).

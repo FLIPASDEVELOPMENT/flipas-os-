@@ -1,6 +1,6 @@
 # Zoho Mail connector — read only
 
-Implemented on `feature/phase-3-ai-sales`. Verified against public official documentation on 2026-10-08. OAuth, account/folder discovery, encrypted refresh, polling and revocation are implemented and tested with simulated HTTP responses and disposable PostgreSQL databases. No real mailbox authorization, authenticated Zoho call, email delivery or paid model call was performed. **Real email sending is permanently disabled in this phase**, including after human draft approval or disabling the emergency pause.
+Implemented on `feature/phase-3-ai-sales`. Verified against public official documentation on 2026-10-08. OAuth, account/folder discovery, encrypted refresh, polling and revocation are implemented and tested with simulated HTTP responses and disposable PostgreSQL databases. No real mailbox authorization, authenticated Zoho call, email delivery or paid model call was performed. The read adapter stays read-only. A separate, default-disabled sending OAuth/transport is now implemented; see [ZOHO_DELIVERY.md](ZOHO_DELIVERY.md). Reading consent alone never permits sending.
 
 ## Official contracts
 

@@ -1,4 +1,4 @@
-import { deliveryBlock } from "../domain/delivery";
+import { assertWriteGrant, zohoSendingProvider } from "./zoho-send";
 import {
   replyContext,
   followUpSuggestion,
@@ -1070,16 +1070,9 @@ export async function requestSend(u: User, id: string, version: number) {
           "Send already attempted; uncertain outcomes must be verified externally",
         );
       if (c.connection.provider !== "MOCK") {
-        const consent = await tx.mailWriteConsent.findUnique({
-          where: { connectionId: c.connectionId },
-        });
-        throw new Error(
-          deliveryBlock(
-            c.connection.provider,
-            false,
-            !!consent && !consent.revokedAt,
-          )!,
-        );
+        const { w } = await assertWriteGrant(tx, c.connectionId, c.senderEmail);
+        if (w.testOnly && w.testAttemptAt)
+          throw new Error("TEST_ALREADY_ATTEMPTED");
       }
       if (
         !d.approvedAt ||
@@ -1088,6 +1081,11 @@ export async function requestSend(u: User, id: string, version: number) {
         )
       )
         throw new Error("HUMAN_REVIEW_REQUIRED");
+      const approver = await tx.user.findUnique({
+        where: { id: d.approvedById ?? "" },
+      });
+      if (!approver || !configuredRole(approver, settings.approveRoles))
+        throw new Error("ACCESS_DENIED");
       const content = await tx.salesEmailVersion.findUniqueOrThrow({
         where: { draftId_version: { draftId: id, version } },
       });
@@ -1133,7 +1131,13 @@ export async function requestSend(u: User, id: string, version: number) {
         tx,
         u.id,
         "EMAIL_SEND_REQUESTED",
-        { draftId: id, version, provider: c.connection.provider },
+        {
+          draftId: id,
+          version,
+          provider: c.connection.provider,
+          approvedById: d.approvedById,
+          recipient: content.recipient,
+        },
         c,
       );
     },
@@ -1144,10 +1148,25 @@ export async function sendApproved(
   id: string,
   version: number,
   userId: string,
-  provider: MailProvider = new MockMailProvider(),
+  provider?: MailProvider,
   signal?: AbortSignal,
 ) {
   signal?.throwIfAborted();
+  // No caller-provided provider can bypass the database grant checks below.
+  const deliveryConnection = await db.salesEmailDraft.findUniqueOrThrow({
+    where: { id },
+    include: { conversation: { include: { connection: true } } },
+  });
+  if (!provider)
+    provider =
+      deliveryConnection.conversation.connection.provider === "ZOHO"
+        ? await zohoSendingProvider(
+            deliveryConnection.conversation.connectionId,
+            id,
+            version,
+            userId,
+          )
+        : new MockMailProvider();
   const claimed = await db.$transaction(
     async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "SalesAISettings" WHERE "id"='company' FOR UPDATE`;
@@ -1182,16 +1201,9 @@ export async function sendApproved(
       )
         throw new Error("SEND_UNCERTAIN");
       if (c.connection.provider !== "MOCK") {
-        const consent = await tx.mailWriteConsent.findUnique({
-          where: { connectionId: c.connectionId },
-        });
-        throw new Error(
-          deliveryBlock(
-            c.connection.provider,
-            false,
-            !!consent && !consent.revokedAt,
-          )!,
-        );
+        const { w } = await assertWriteGrant(tx, c.connectionId, c.senderEmail);
+        if (w.testOnly && w.testAttemptAt)
+          throw new Error("TEST_ALREADY_ATTEMPTED");
       }
       if (!c.connection.connected || !c.connection.consented)
         throw new Error("AUTH_REQUIRED");
@@ -1212,6 +1224,16 @@ export async function sendApproved(
       )
         throw new Error("ACCESS_DENIED");
       await assertDeliveryHistory(c.id, content, tx);
+      if (c.connection.provider === "ZOHO") {
+        const w = await tx.mailWriteConsent.findUniqueOrThrow({
+          where: { connectionId: c.connectionId },
+        });
+        if (w.testOnly)
+          await tx.mailWriteConsent.update({
+            where: { id: w.id },
+            data: { testAttemptAt: new Date() },
+          });
+      }
       const key = digest(`${id}:${version}`);
       const attempt = await tx.mailSendAttempt.create({
         data: { draftId: id, version, idempotencyKey: key, actorId: userId },
@@ -1224,10 +1246,16 @@ export async function sendApproved(
         tx,
         userId,
         "EMAIL_SENDING",
-        { draftId: id, version, attemptId: attempt.id },
+        {
+          draftId: id,
+          version,
+          attemptId: attempt.id,
+          approvedById: d.approvedById,
+          recipient: content.recipient,
+        },
         c,
       );
-      return { attempt, c, content };
+      return { attempt, c, content, approvedById: d.approvedById };
     },
     { isolationLevel: "Serializable" },
   );
@@ -1239,7 +1267,9 @@ export async function sendApproved(
         recipient: claimed.content.recipient,
         subject: claimed.content.subject,
         body: claimed.content.body,
-        replyToMessageId: claimed.c.messages.at(-1)?.providerMessageId,
+        replyToMessageId: claimed.c.messages.findLast(
+          (m) => m.direction === "INBOUND",
+        )?.providerMessageId,
         idempotencyKey: claimed.attempt.idempotencyKey,
       },
       signal,
@@ -1282,29 +1312,65 @@ export async function sendApproved(
           version,
           providerMessageId: result.messageId,
           provider: claimed.c.connection.provider,
+          approvedById: claimed.approvedById,
+          recipient: claimed.content.recipient,
+          referenceType: result.messageId.startsWith("zoho-ack:")
+            ? "LOCAL_ACK_REFERENCE"
+            : "PROVIDER_MESSAGE_ID",
         },
         claimed.c,
       );
     });
-  } catch {
+  } catch (e) {
+    const rejected = e instanceof Error && e.message === "SEND_REJECTED";
+    const preflight =
+      claimed.c.connection.provider === "ZOHO" &&
+      e instanceof Error &&
+      [
+        "OUTBOUND_PAUSED",
+        "LIVE_DISABLED",
+        "WRITE_AUTH_REQUIRED",
+        "PROCESSING_DISABLED",
+        "ACCESS_DENIED",
+        "CONTACT_SUPPRESSED",
+        "FOLLOW_UP_CLOSED",
+        "TEST_RECIPIENT_REQUIRED",
+      ].includes(e.message);
+    const code = rejected
+      ? "SEND_REJECTED"
+      : preflight
+        ? (e as Error).message
+        : "SEND_UNCERTAIN";
     await db.$transaction(async (tx) => {
       await tx.mailSendAttempt.update({
         where: { id: claimed.attempt.id },
-        data: { status: "UNCERTAIN", errorCode: "SEND_UNCERTAIN" },
+        data: {
+          status: rejected || preflight ? "DEFINITELY_FAILED" : "UNCERTAIN",
+          errorCode: code,
+        },
       });
       await tx.salesEmailDraft.update({
         where: { id },
-        data: { status: "FAILED", lastError: "SEND_UNCERTAIN" },
+        data: { status: "FAILED", lastError: code },
       });
       await audit(
         tx,
         userId,
-        "EMAIL_SEND_UNCERTAIN",
-        { draftId: id, version },
+        rejected
+          ? "EMAIL_SEND_REJECTED"
+          : preflight
+            ? "EMAIL_SEND_BLOCKED"
+            : "EMAIL_SEND_UNCERTAIN",
+        {
+          draftId: id,
+          version,
+          approvedById: claimed.approvedById,
+          recipient: claimed.content.recipient,
+        },
         claimed.c,
       );
     });
-    throw new Error("SEND_UNCERTAIN");
+    throw new Error(code);
   }
 }
 export async function followUp(u: User, id: string, input: unknown) {
@@ -1364,6 +1430,7 @@ export async function mailboxSync(u: User, id: string) {
 export async function disconnectMailbox(u: User, id: string) {
   assertOwner(u);
   await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "SalesAISettings" WHERE "id"='company' FOR UPDATE`;
     const c = await tx.mailConnection.findUniqueOrThrow({ where: { id } });
     await tx.mailConnection.update({
       where: { id },
@@ -1381,8 +1448,27 @@ export async function disconnectMailbox(u: User, id: string) {
     });
     await tx.mailWriteConsent.updateMany({
       where: { connectionId: id },
-      data: { revokedAt: new Date() },
+      data: {
+        revokedAt: new Date(),
+        sendEnabled: false,
+        lastError: "REVOCATION_PENDING",
+      },
     });
+    await tx.salesAISettings.update({
+      where: { id: "company" },
+      data: { outboundPaused: true },
+    });
+    const write = await tx.mailWriteConsent.findUnique({
+      where: { connectionId: id },
+    });
+    if (write?.tokenCipher)
+      await enqueue(
+        "REVOKE_WRITE",
+        `revoke-write:${write.id}:${Date.now()}`,
+        { connectionId: id },
+        new Date(),
+        tx,
+      );
     if (c.provider === "ZOHO" && c.tokenCipher)
       await enqueue(
         "REVOKE",

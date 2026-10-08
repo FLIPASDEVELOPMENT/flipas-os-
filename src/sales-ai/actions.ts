@@ -231,7 +231,7 @@ export async function retryRevocation(f: FormData) {
         where: { id: field(f, "id") },
       });
       if (
-        !["REVOKE", "REVOKE_GRANT"].includes(job.type) ||
+        !["REVOKE", "REVOKE_GRANT", "REVOKE_WRITE"].includes(job.type) ||
         job.status !== "FAILED"
       )
         throw new Error("ACCESS_DENIED");
@@ -262,4 +262,62 @@ export async function writeConsentAction(f: FormData) {
       ? revokeWriteConsent(u, field(f, "id"))
       : prepareWriteConsent(u, field(f, "id"), f.has("consent")),
   );
+}
+
+export async function connectZohoSending(f: FormData) {
+  const u = await requireOwner();
+  if (!f.has("consent")) redirect("/owner/ai?error=WRITE_AUTH_REQUIRED");
+  const { cookies } = await import("next/headers");
+  const { randomBytes } = await import("node:crypto");
+  const { createOAuthState } = await import("./server/oauth-state");
+  const { writeAuthorizeUrl, callbackUri } = await import("./providers/zoho");
+  const { digest } = await import("./domain/security");
+  let url = "";
+  try {
+    const binding = randomBytes(32).toString("hex");
+    const state = await createOAuthState(u, binding, field(f, "id"));
+    const row = await db.mailOAuthState.findUniqueOrThrow({
+      where: { stateHash: digest(state) },
+    });
+    (await cookies()).set("flipas_zoho_binding", binding, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: callbackUri().startsWith("https:"),
+      path: "/",
+      maxAge: 600,
+    });
+    url = writeAuthorizeUrl(
+      row.region,
+      row.clientId,
+      row.redirectUri,
+      state,
+      true,
+    );
+  } catch {
+    redirect("/owner/ai?error=WRITE_AUTH_REQUIRED");
+  }
+  redirect(url);
+}
+export async function writeConnectionAction(f: FormData) {
+  const u = await requireOwner();
+  const { testWriteConnection, configureWriteDelivery } = await import(
+    "./server/write-oauth"
+  );
+  await action("/owner/ai", async () => {
+    const operation = field(f, "operation");
+    if (operation === "test") return testWriteConnection(u, field(f, "id"));
+    if (operation === "disable")
+      return configureWriteDelivery(u, field(f, "id"), false);
+    if (operation !== "enable" || !f.has("deliveryConsent"))
+      throw new Error("WRITE_AUTH_REQUIRED");
+    const mode = z
+      .enum(["SELF_TEST", "APPROVED_REPLIES"])
+      .parse(field(f, "mode"));
+    return configureWriteDelivery(
+      u,
+      field(f, "id"),
+      true,
+      mode === "SELF_TEST",
+    );
+  });
 }

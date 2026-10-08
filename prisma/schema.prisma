@@ -643,6 +643,11 @@ model MailOAuthGrant {
 }
 
 model MailOAuthState {
+ writeConsentedAt DateTime?
+ expectedAccountId String?
+ expectedAddress String?
+ purpose String @default("READ")
+ connectionId String?
  redirectUri String @default("")
  id String @id @default(cuid())
  stateHash String @unique
@@ -692,5 +697,13 @@ model MailWriteConsent {
  accountId String
  address String
  scopes Json
- // Consent is preparation only; it is never proof of OAuth authorization.
+ authorizedAt DateTime?
+ tokenCipher String?
+ tokenExpiresAt DateTime?
+ oauthClientId String @default("")
+ oauthSecretCipher String?
+ sendEnabled Boolean @default(false)
+ testOnly Boolean @default(true)
+ testAttemptAt DateTime?
+ lastError String?
 }

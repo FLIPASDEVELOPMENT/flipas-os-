@@ -86,8 +86,18 @@ export function Notice({ error, saved }: { error?: string; saved?: string }) {
               OUTBOUND_PAUSED: "Outbound mail is paused by the owner.",
               PROCESSING_DISABLED: "AI processing is disabled.",
               LIVE_DISABLED:
-                "Real email delivery remains disabled in this release. Preparing consent and approving a draft do not activate sending.",
+                "Deployment or mailbox delivery is disabled. OAuth authorization and draft approval do not activate sending.",
               INVALID_INPUT: "Check the required fields and date format.",
+              SEND_REJECTED:
+                "Zoho explicitly rejected the request. No automatic retry; review authorization and create a newly approved draft only after verification.",
+              SHARED_GRANT_REJECTED:
+                "Zoho reused the reading refresh token. Sending was not connected or revoked; use a separate sending OAuth client to preserve reading access.",
+              ACCOUNT_MISMATCH:
+                "The authorized Zoho account does not match the selected mailbox. No sending grant was installed.",
+              TEST_RECIPIENT_REQUIRED:
+                "Self-addressed test mode can only send to the connected mailbox's own address.",
+              TEST_ALREADY_ATTEMPTED:
+                "The one-mail test attempt has already been consumed. Do not retry automatically.",
               SEND_UNCERTAIN:
                 "Delivery is uncertain. Verify the provider mailbox; do not retry.",
               PROVIDER_FAILURE:

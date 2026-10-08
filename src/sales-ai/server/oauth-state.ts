@@ -5,7 +5,11 @@ import { assertOwner } from "@/owner/service";
 import { callbackUri } from "../providers/zoho";
 import { digest, encryptSecret } from "../domain/security";
 /** Single-use OWNER/browser-bound state with immutable client, region and callback snapshots. */
-export async function createOAuthState(u: User, browserBinding: string) {
+export async function createOAuthState(
+  u: User,
+  browserBinding: string,
+  connectionId?: string,
+) {
   assertOwner(u);
   if (browserBinding.length < 32) throw new Error("ACCESS_DENIED");
   const settings = await db.salesAISettings.findUniqueOrThrow({
@@ -13,9 +17,41 @@ export async function createOAuthState(u: User, browserBinding: string) {
   });
   if (!settings.oauthClientId || !settings.oauthSecretCipher)
     throw new Error("AUTH_REQUIRED");
+  let writeSnapshot:
+    | {
+        writeConsentedAt: Date;
+        expectedAccountId: string;
+        expectedAddress: string;
+      }
+    | undefined;
+  if (connectionId) {
+    const c = await db.mailConnection.findUniqueOrThrow({
+      where: { id: connectionId },
+      include: { writeConsent: true },
+    });
+    if (
+      c.ownerId !== u.id ||
+      c.provider !== "ZOHO" ||
+      !c.connected ||
+      !c.consented ||
+      !c.writeConsent ||
+      c.writeConsent.revokedAt ||
+      c.writeConsent.tokenCipher ||
+      c.region !== settings.oauthRegion
+    )
+      throw new Error("WRITE_AUTH_REQUIRED");
+    writeSnapshot = {
+      writeConsentedAt: c.writeConsent.consentedAt,
+      expectedAccountId: c.accountId,
+      expectedAddress: c.address,
+    };
+  }
   const state = randomBytes(32).toString("hex");
   await db.mailOAuthState.create({
     data: {
+      ...writeSnapshot,
+      purpose: connectionId ? "SEND" : "READ",
+      connectionId: connectionId ?? null,
       redirectUri: callbackUri(),
       stateHash: digest(state),
       bindingHash: digest(browserBinding),

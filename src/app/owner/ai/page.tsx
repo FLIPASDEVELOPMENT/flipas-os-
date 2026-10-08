@@ -1,3 +1,4 @@
+import { realDeliveryEnabled } from "@/sales-ai/domain/delivery";
 import { z } from "zod";
 import { budgetSummary } from "@/sales-ai/server/budget";
 import { openaiStatus } from "@/sales-ai/server/openai-config";
@@ -11,6 +12,8 @@ import {
   connectZoho,
   retryRevocation,
   writeConsentAction,
+  connectZohoSending,
+  writeConnectionAction,
 } from "@/sales-ai/actions";
 import { DateTime, Mode, Notice } from "@/sales-ai/components";
 const diagnosticView = z.object({
@@ -99,7 +102,17 @@ export default async function AIAdmin({
   });
   const [writeConsents, pendingReplies] = await Promise.all([
     db.mailWriteConsent.findMany({
-      select: { connectionId: true, revokedAt: true, consentedAt: true },
+      select: {
+        connectionId: true,
+        revokedAt: true,
+        consentedAt: true,
+        authorizedAt: true,
+        sendEnabled: true,
+        testOnly: true,
+        testAttemptAt: true,
+        lastError: true,
+        scopes: true,
+      },
     }),
     db.salesEmailDraft.findMany({
       where: { status: { in: ["PENDING_REVIEW", "APPROVED", "FAILED"] } },
@@ -151,6 +164,8 @@ export default async function AIAdmin({
       select: {
         id: true,
         provider: true,
+        region: true,
+        accountId: true,
         address: true,
         connected: true,
         consented: true,
@@ -194,7 +209,9 @@ export default async function AIAdmin({
       <h1>AI Administration</h1>
       <p className="muted">
         OWNER controls mail authorization, processing and sending permissions.
-        Real email sending is disabled. Zoho connection grants read-only access.
+        Real email delivery starts paused and requires separate sending OAuth,
+        deployment and mailbox authorization. The original Zoho connection
+        remains read-only.
       </p>
       <Notice {...p} />
       <section className="panel">
@@ -207,7 +224,7 @@ export default async function AIAdmin({
         {pendingReplies.map((d) => (
           <a className="row" key={d.id} href={"/ai/inbox/" + d.conversationId}>
             <span>
-              {d.conversation.subject} · Version {d.version}
+              {d.conversation.subject} · Draft {d.id} · Version {d.version}
             </span>
             <span className="badge">
               {d.status}
@@ -218,41 +235,125 @@ export default async function AIAdmin({
         {!pendingReplies.length && <p>No replies awaiting action.</p>}
       </section>
       <section className="panel">
-        <h2>Separate Zoho sending consent — preparation only</h2>
+        <h2>Separate Zoho sending authorization</h2>
         <p>
-          Read authorization stays unchanged. Future sending requires
-          ZohoMail.accounts.READ and ZohoMail.messages.CREATE in a separate
-          grant, explicit OWNER consent and activation approval. No ALL, UPDATE,
-          DELETE or folder write scopes. This release cannot request a write
-          token or send real mail.
+          Read access stays unchanged. Sending uses a separate OAuth grant with
+          ZohoMail.accounts.READ and ZohoMail.messages.CREATE. No ALL, UPDATE,
+          DELETE or folder write scopes.
+        </p>
+        <p>
+          Deployment gate:{" "}
+          <strong>{realDeliveryEnabled() ? "enabled" : "disabled"}</strong> ·
+          Emergency Pause:{" "}
+          <strong>{s?.outboundPaused !== false ? "PAUSED" : "not paused"}</strong>.
+          Connecting and testing access never sends email. Approval and Send are
+          separate actions.
         </p>
         {connections
           .filter((c) => c.provider === "ZOHO")
           .map((c) => {
-            const consent = writeConsents.find(
-              (w) => w.connectionId === c.id && !w.revokedAt,
-            );
+            const w = writeConsents.find((w) => w.connectionId === c.id);
+            const authorized = !!w?.authorizedAt && !w.revokedAt;
             return (
-              <form key={c.id} action={writeConsentAction} className="form">
-                <input type="hidden" name="id" value={c.id} />
+              <div key={c.id} className="panel">
+                <h3>
+                  {c.address} · {c.region} · Account {c.accountId}
+                </h3>
                 <p>
-                  {c.address} ·{" "}
-                  {consent
-                    ? "Consent prepared; OAuth write NOT configured"
-                    : "Read only; write NOT configured"}
+                  {authorized
+                    ? "OAuth sending authorized"
+                    : w?.revokedAt
+                      ? "REVOKED"
+                      : "READ ONLY / sending not authorized"}
+                  {w?.lastError ? " · " + w.lastError : ""}
                 </p>
-                <label>
-                  <input type="checkbox" name="consent" required={!consent} /> I
-                  am the OWNER and consent to preparing a separate sending
-                  authorization for this mailbox. This does not activate
-                  sending.
-                </label>
-                <button name="operation" value={consent ? "revoke" : "prepare"}>
-                  {consent
-                    ? "Revoke prepared consent & pause outbound"
-                    : "Prepare consent only"}
-                </button>
-              </form>
+                <p>
+                  Mailbox delivery: {w?.sendEnabled ? "enabled" : "PAUSED"} ·
+                  {w?.testOnly
+                    ? "One self-addressed test only"
+                    : "Approved replies"}
+                  {w?.testAttemptAt
+                    ? " · Test attempt consumed; no automatic retry"
+                    : ""}
+                </p>
+                {!w || w.revokedAt ? (
+                  <form action={writeConsentAction} className="form">
+                    <input type="hidden" name="id" value={c.id} />
+                    <label>
+                      <input type="checkbox" name="consent" required /> I am the
+                      OWNER and consent to separate sending authorization. This
+                      does not enable delivery.
+                    </label>
+                    <button name="operation" value="prepare">
+                      Prepare sending consent
+                    </button>
+                  </form>
+                ) : null}
+                {w && !w.revokedAt && !authorized ? (
+                  <form action={connectZohoSending}>
+                    <input type="hidden" name="id" value={c.id} />
+                    <label>
+                      <input type="checkbox" name="consent" required />{" "}
+                      Authorize this exact mailbox for sending through Zoho
+                      OAuth.
+                    </label>
+                    <button disabled={!c.connected}>
+                      Authorize sending in Zoho
+                    </button>
+                  </form>
+                ) : null}
+                {authorized ? (
+                  <>
+                    <form action={writeConnectionAction} className="form">
+                      <input type="hidden" name="id" value={c.id} />
+                      <button name="operation" value="test">
+                        Test access — no email sent
+                      </button>
+                      <button name="operation" value="disable">
+                        Disable mailbox sending & pause
+                      </button>
+                    </form>
+                    <form action={writeConnectionAction} className="form">
+                      <input type="hidden" name="id" value={c.id} />
+                      <label>
+                        Delivery authorization
+                        <select name="mode" defaultValue="SELF_TEST">
+                          <option value="SELF_TEST">
+                            One self-addressed test only
+                          </option>
+                          <option value="APPROVED_REPLIES">
+                            Approved replies (explicit OWNER authorization)
+                          </option>
+                        </select>
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          name="deliveryConsent"
+                          required
+                        />{" "}
+                        I explicitly authorize this mailbox and selected
+                        delivery mode. Emergency Pause stays active.
+                      </label>
+                      <button
+                        name="operation"
+                        value="enable"
+                        disabled={!realDeliveryEnabled()}
+                      >
+                        Authorize mailbox delivery (keeps Emergency Pause)
+                      </button>
+                    </form>
+                  </>
+                ) : null}
+                {w && !w.revokedAt ? (
+                  <form action={writeConsentAction}>
+                    <input type="hidden" name="id" value={c.id} />
+                    <button name="operation" value="revoke">
+                      Disconnect sending & revoke token (keep reading)
+                    </button>
+                  </form>
+                ) : null}
+              </div>
             );
           })}
       </section>
@@ -637,7 +738,9 @@ export default async function AIAdmin({
                 <td>
                   {j.errorCode ?? "—"}
                   {j.status === "FAILED" &&
-                    ["REVOKE", "REVOKE_GRANT"].includes(j.type) && (
+                    ["REVOKE", "REVOKE_GRANT", "REVOKE_WRITE"].includes(
+                      j.type,
+                    ) && (
                       <form action={retryRevocation}>
                         <input type="hidden" name="id" value={j.id} />
                         <button>Retry revocation</button>

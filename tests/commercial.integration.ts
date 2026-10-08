@@ -349,7 +349,10 @@ test("commercial context, CRM identity, follow-ups, write consent and delivery r
             accountId: "123",
             address: "sales@example.invalid",
             expectedRecipient: base.fromEmail,
-            ...message,
+            recipient: message.recipient,
+            subject: message.subject,
+            body: message.body,
+            // This legacy MOCK fixture has non-Zoho IDs; exercise new-email preparation only.
           });
           assert.equal(prepared.body.toAddress, base.fromEmail);
           calls++;

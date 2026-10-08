@@ -27,11 +27,11 @@ export function authorizeUrl(region: string, clientId: string, redirectUri: stri
     scope: readScopes.join(","), access_type: "offline", prompt: "consent", state }).toString();
   return url.toString();
 }
-const tokenResponse = z.object({ access_token: z.string().min(1), refresh_token: z.string().min(1).optional(), expires_in: z.coerce.number().positive().max(86400) });
+const tokenResponse = z.object({ scope:z.string().optional(), access_token: z.string().min(1), refresh_token: z.string().min(1).optional(), expires_in: z.coerce.number().positive().max(86400) });
 const id = z.string().regex(/^\d{1,30}$/);
 export const accountSchema = z.object({ accountId: id, primaryEmailAddress: z.email() });
 export const folderSchema = z.object({ folderId: id, folderName: z.string().max(300), folderType: z.string().optional() });
-export type ZohoTokens = { accessToken: string; refreshToken: string; expiresAt: Date };
+export type ZohoTokens = { scopes?:string[]; accessToken: string; refreshToken: string; expiresAt: Date };
 export class ZohoClient {
   constructor(readonly region: string, private readonly transport: typeof fetch = fetch) { regionEndpoints(region); }
   private async request(url: URL, init: RequestInit = {}, signal?: AbortSignal): Promise<unknown> {
@@ -59,17 +59,17 @@ export class ZohoClient {
     return this.request(new URL(path, regionEndpoints(this.region).accounts), { method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(values) });
   }
-  async exchange(clientId: string, secret: string, code: string, redirectUri: string): Promise<ZohoTokens> {
+  async exchange(clientId: string, secret: string, code: string, redirectUri: string, scopes: readonly string[] = readScopes): Promise<ZohoTokens> {
     const result = tokenResponse.safeParse(await this.oauth("/oauth/v2/token", { client_id: clientId, client_secret: secret,
-      code, grant_type: "authorization_code", redirect_uri: redirectUri, scope: readScopes.join(",") }));
+      code, grant_type: "authorization_code", redirect_uri: redirectUri, scope: scopes.join(",") }));
     if (!result.success || !result.data.refresh_token) throw new Error("AUTH_REQUIRED");
-    return { accessToken: result.data.access_token, refreshToken: result.data.refresh_token, expiresAt: new Date(Date.now() + result.data.expires_in * 1000) };
+    return { scopes:result.data.scope?.split(/[ ,]+/).filter(Boolean), accessToken: result.data.access_token, refreshToken: result.data.refresh_token, expiresAt: new Date(Date.now() + result.data.expires_in * 1000) };
   }
   async refresh(clientId: string, secret: string, tokens: ZohoTokens): Promise<ZohoTokens> {
     const result = tokenResponse.safeParse(await this.oauth("/oauth/v2/token", { client_id: clientId, client_secret: secret,
       refresh_token: tokens.refreshToken, grant_type: "refresh_token" }));
     if (!result.success) throw new Error("TOKEN_REFRESH_FAILED");
-    return { accessToken: result.data.access_token, refreshToken: result.data.refresh_token ?? tokens.refreshToken,
+    return { scopes:result.data.scope?.split(/[ ,]+/).filter(Boolean), accessToken: result.data.access_token, refreshToken: result.data.refresh_token ?? tokens.refreshToken,
       expiresAt: new Date(Date.now() + result.data.expires_in * 1000) };
   }
   async revoke(refreshToken: string, clientId: string, secret: string) {
