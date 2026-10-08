@@ -1,3 +1,4 @@
+import { deliveryBlock } from "@/sales-ai/domain/delivery";
 import Link from "next/link";
 import { FollowUpForm } from "@/sales-ai/follow-up-form";
 import { notFound } from "next/navigation";
@@ -8,6 +9,7 @@ import {
   conversation,
   intelligence,
   matchingCustomers,
+  pipelineSuggestion,
 } from "@/sales-ai/server/service";
 import { threadAction, draftAction } from "@/sales-ai/actions";
 import { classification, mailKind } from "@/sales-ai/domain/intelligence";
@@ -68,6 +70,11 @@ export default async function Thread({
           })
         : Promise.resolve([]),
     ]);
+  const suggestion = await pipelineSuggestion(u, id).catch(() => null);
+  const blockedDelivery = deliveryBlock(
+    c.connection.provider,
+    settings?.outboundPaused ?? true,
+  );
   return (
     <>
       <div className="estimator-toolbar">
@@ -83,6 +90,21 @@ export default async function Thread({
       <div className="columns">
         <section className="panel">
           <h2>Commercial review</h2>
+          <form action={threadAction} className="button-row">
+            <ThreadFields id={id} operation="contact" />
+            <label>
+              <input
+                type="checkbox"
+                name="doNotContact"
+                defaultChecked={c.doNotContact}
+              />{" "}
+              Do not contact this sender
+            </label>
+            <button>Save contact preference</button>
+            <small>
+              Only OWNER can clear a suppression. No client email is sent.
+            </small>
+          </form>
           <p>
             Mail classification: {info?.mailKind ?? "Unreviewed"} ·{" "}
             {info?.needsHumanReview
@@ -173,9 +195,12 @@ export default async function Thread({
                   ["Email", info.email],
                   ["Phone", info.phone],
                   ["Location", info.projectLocation],
+                  ["Property address", info.propertyAddress],
+                  ["Consultation availability", info.consultationAvailability],
                   ["Budget (explicit)", info.budget],
                   ["Timeline", info.timeline],
                   ["Urgency", info.urgency],
+                  ["Materials", info.materials.join(", ") || null],
                 ].map(([label, value]) => (
                   <div key={label}>
                     <dt>{label}</dt>
@@ -277,7 +302,7 @@ export default async function Thread({
               defaultValue={c.customerId ?? ""}
             >
               <option value="">Choose and confirm contact</option>
-              {customers.map((t) => (
+              {matches.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.firstName} {t.lastName} · {t.email ?? "No email"}
                 </option>
@@ -288,36 +313,49 @@ export default async function Thread({
             Lead (must belong to customer)
             <select name="leadId" defaultValue={c.leadId ?? ""}>
               <option value="">No lead</option>
-              {leads.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {customers.find((x) => x.id === t.customerId)?.firstName} ·{" "}
-                  {t.serviceType}
-                </option>
-              ))}
+              {leads
+                .filter((t) => matches.some((c) => c.id === t.customerId))
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {customers.find((x) => x.id === t.customerId)?.firstName} ·{" "}
+                    {t.serviceType}
+                  </option>
+                ))}
             </select>
           </label>
           <label>
             Opportunity (same customer and lead)
             <select name="opportunityId" defaultValue={c.opportunityId ?? ""}>
               <option value="">No opportunity</option>
-              {opportunities.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {customers.find((x) => x.id === t.customerId)?.firstName} ·{" "}
-                  {t.stage}
-                </option>
-              ))}
+              {opportunities
+                .filter((t) => matches.some((c) => c.id === t.customerId))
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {customers.find((x) => x.id === t.customerId)?.firstName} ·{" "}
+                    {t.stage}
+                  </option>
+                ))}
             </select>
           </label>
           <div>
             <button>Confirm CRM link</button>
           </div>
         </form>
+        {c.leadId && !c.opportunityId && (
+          <p className="muted">
+            Suggested next step:{" "}
+            <Link href={"/leads/" + c.leadId}>review this existing lead</Link>{" "}
+            and confirm whether an opportunity already exists before creating
+            one. Nothing is created automatically.
+          </p>
+        )}
         {!c.leadId && (
           <details className="ai-section">
             <summary>Confirm a new commercial lead</summary>
             <p className="muted">
               Use verified names. Existing email matches must be linked above.
-              This action creates a contact and lead, never an opportunity or
+              The summary and source are recorded with email references. This
+              action creates a contact and lead, never an opportunity or
               estimate.
             </p>
             <form className="form" action={threadAction}>
@@ -338,8 +376,14 @@ export default async function Thread({
       <section className="panel">
         <h2>Follow-up</h2>
         <p className="muted">
-          Suggested: check back in two business days after reviewing the
-          inquiry. Set the actual due time yourself.
+          {suggestion ? (
+            <>
+              Pipeline event: {suggestion.stage} · {suggestion.reason} ·{" "}
+              <DateTime date={suggestion.dueAt} />
+            </>
+          ) : (
+            "No scheduled pipeline event to suggest. Set a verified next action manually. Closed or suppressed contacts are blocked."
+          )}
         </p>
         <FollowUpForm id={id} />
         {c.followUps.map((f) => (
@@ -464,7 +508,7 @@ export default async function Thread({
                     <button
                       name="operation"
                       value="send"
-                      disabled={settings.outboundPaused}
+                      disabled={!!blockedDelivery || c.doNotContact}
                     >
                       {c.connection.provider === "MOCK"
                         ? "Simulate approved send"
@@ -473,6 +517,20 @@ export default async function Thread({
                     </button>
                   )}
               </form>
+              {d.status === "APPROVED" && blockedDelivery && (
+                <p role="status" className="muted">
+                  <span className="badge">PAUSED</span> Approved version{" "}
+                  {d.approvedVersion} is saved, but delivery is blocked:{" "}
+                  {blockedDelivery === "OUTBOUND_PAUSED"
+                    ? "OWNER emergency pause is active."
+                    : "Separate Zoho write authorization is missing and real delivery remains locked. Reading consent does not permit sending."}
+                </p>
+              )}
+              {c.doNotContact && (
+                <p className="error">
+                  CONTACT_SUPPRESSED · Do not send or create follow-ups.
+                </p>
+              )}
               {d.attempts.map((a) => (
                 <p key={a.id} className="muted">
                   Version {a.version} · Delivery {a.status} ·{" "}

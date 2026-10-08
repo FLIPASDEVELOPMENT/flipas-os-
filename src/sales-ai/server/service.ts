@@ -1,3 +1,10 @@
+import { deliveryBlock } from "../domain/delivery";
+import {
+  replyContext,
+  followUpSuggestion,
+  hasForward,
+  type VerifiedCRM,
+} from "../domain/context";
 import { openaiEvidenceMessages } from "../providers/openai";
 import { runAI } from "./budget";
 import { openaiConfig } from "./openai-config";
@@ -70,7 +77,7 @@ export async function conversation(u: User, id: string, tx: TX = db) {
     where: { id, ...conversationScope(u) },
     include: {
       connection: true,
-      messages: { orderBy: { receivedAt: "asc" }, take: 100 },
+      messages: { orderBy: { receivedAt: "desc" }, take: 100 },
       drafts: {
         include: {
           versions: { orderBy: { version: "desc" }, take: 1 },
@@ -82,6 +89,7 @@ export async function conversation(u: User, id: string, tx: TX = db) {
     },
   });
   if (!c) throw new Error("ACCESS_DENIED");
+  c.messages.reverse();
   return c;
 }
 export async function enqueue(
@@ -267,13 +275,30 @@ export async function syncMailbox(
       for (const raw of page.messages) {
         signal?.throwIfAborted();
         const m = mailMessage.parse(raw);
-        const c = await tx.mailConversation.upsert({
+        const existingThread = await tx.mailConversation.findUnique({
           where: {
             connectionId_threadId: { connectionId: id, threadId: m.threadId },
           },
+        });
+        const identityThread =
+          existingThread &&
+          existingThread.senderEmail.toLowerCase() !== m.fromEmail.toLowerCase()
+            ? `${m.threadId}:${digest(m.fromEmail.toLowerCase()).slice(0, 16)}`
+            : m.threadId;
+        const optOut =
+          /\b(?:do not contact me|stop emailing me|remove me from your list|no me contacten|no me contactes|no me escriban|no quiero recibir)\b/i.test(
+            m.body,
+          );
+        const c = await tx.mailConversation.upsert({
+          where: {
+            connectionId_threadId: {
+              connectionId: id,
+              threadId: identityThread,
+            },
+          },
           create: {
             connectionId: id,
-            threadId: m.threadId,
+            threadId: identityThread,
             subject: m.subject,
             senderEmail: m.fromEmail,
             senderName: m.fromName,
@@ -314,9 +339,33 @@ export async function syncMailbox(
             unread: true,
             processed: false,
             reviewedAt: null,
+            ...(optOut ? { doNotContact: true } : {}),
             updatedAt: new Date(),
           },
         });
+        await tx.salesEmailDraft.updateMany({
+          where: { conversationId: c.id, status: "APPROVED" },
+          data: {
+            status: "PENDING_REVIEW",
+            approvedVersion: null,
+            approvedAt: null,
+            approvedById: null,
+            requestedById: null,
+          },
+        });
+        if (optOut) {
+          await tx.salesFollowUp.updateMany({
+            where: { conversationId: c.id, completedAt: null },
+            data: { completedAt: new Date() },
+          });
+          await audit(
+            tx,
+            null,
+            "MAIL_CONTACT_OPT_OUT",
+            { conversationId: c.id, messageId: m.messageId },
+            c,
+          );
+        }
         await enqueue(
           "ANALYZE",
           `analyze:${c.id}:${m.messageId}`,
@@ -350,6 +399,123 @@ export async function syncMailbox(
     { isolationLevel: "Serializable", timeout: 20000 },
   );
 }
+export async function verifiedCRMContext(
+  c: {
+    customerId: string | null;
+    leadId: string | null;
+    opportunityId: string | null;
+    senderEmail: string;
+    assignedToId: string;
+  },
+  tx: TX = db,
+): Promise<VerifiedCRM> {
+  if (!c.customerId) return {};
+  const actor = await tx.user.findUnique({ where: { id: c.assignedToId } });
+  if (!actor || !actor.active) return {};
+  const customer = await tx.customer.findFirst({
+    where: {
+      id: c.customerId,
+      ...customerScope(actor),
+      email: { equals: c.senderEmail, mode: "insensitive" },
+    },
+  });
+  if (!customer) return {};
+  const lead = c.leadId
+    ? await tx.lead.findFirst({
+        where: { id: c.leadId, customerId: customer.id, ...leadScope(actor) },
+      })
+    : null;
+  const opportunity = c.opportunityId
+    ? await tx.opportunity.findFirst({
+        where: {
+          id: c.opportunityId,
+          customerId: customer.id,
+          ...opportunityScope(actor),
+        },
+      })
+    : null;
+  return {
+    customerName: `${customer.firstName} ${customer.lastName}`.slice(0, 200),
+    ...(customer.city ? { city: customer.city.slice(0, 200) } : {}),
+    ...(customer.address ? { address: customer.address.slice(0, 400) } : {}),
+    ...(lead ? { serviceType: lead.serviceType.slice(0, 200) } : {}),
+    ...(lead?.budgetMin !== null && lead?.budgetMin !== undefined
+      ? {
+          budget: `${lead.budgetMin}${lead.budgetMax !== null ? "–" + lead.budgetMax : ""}`,
+        }
+      : {}),
+    ...(lead?.desiredStartDate
+      ? { timeline: lead.desiredStartDate.toISOString().slice(0, 10) }
+      : {}),
+    ...(opportunity ? { stage: opportunity.stage } : {}),
+  };
+}
+export async function assertContactAllowed(
+  c: {
+    id: string;
+    senderEmail: string;
+    customerId: string | null;
+    opportunityId: string | null;
+    doNotContact: boolean;
+  },
+  tx: TX = db,
+) {
+  const suppressed =
+    c.doNotContact ||
+    (await tx.mailConversation.findFirst({
+      where: {
+        doNotContact: true,
+        OR: [
+          { senderEmail: { equals: c.senderEmail, mode: "insensitive" } },
+          ...(c.customerId ? [{ customerId: c.customerId }] : []),
+        ],
+      },
+      select: { id: true },
+    }));
+  if (suppressed) throw new Error("CONTACT_SUPPRESSED");
+  if (c.opportunityId) {
+    const opportunity = await tx.opportunity.findUnique({
+      where: { id: c.opportunityId },
+    });
+    if (opportunity && ["WON", "LOST"].includes(opportunity.stage))
+      throw new Error("FOLLOW_UP_CLOSED");
+  }
+}
+export async function contactPreference(
+  u: User,
+  id: string,
+  suppressed: boolean,
+) {
+  if (!suppressed) assertOwner(u);
+  await db.$transaction(async (tx) => {
+    const c = await conversation(u, id, tx);
+    await tx.mailConversation.update({
+      where: { id },
+      data: { doNotContact: suppressed },
+    });
+    if (suppressed)
+      await tx.salesFollowUp.updateMany({
+        where: { conversationId: id, completedAt: null },
+        data: { completedAt: new Date() },
+      });
+    await audit(
+      tx,
+      u.id,
+      "MAIL_CONTACT_PREFERENCE",
+      { conversationId: id, doNotContact: suppressed },
+      c,
+    );
+  });
+}
+export async function pipelineSuggestion(u: User, id: string) {
+  const c = await conversation(u, id);
+  await assertContactAllowed(c);
+  if (!c.opportunityId) return null;
+  const o = await db.opportunity.findFirst({
+    where: { id: c.opportunityId, ...opportunityScope(u) },
+  });
+  return o ? followUpSuggestion(o.stage, o.nextAction, o.nextActionDate) : null;
+}
 export async function analyzeConversation(id: string, signal?: AbortSignal) {
   const settings = await salesSettings();
   if (!settings.processingEnabled) throw new Error("PROCESSING_DISABLED");
@@ -373,14 +539,25 @@ export async function analyzeConversation(id: string, signal?: AbortSignal) {
       body: m.body,
     }));
   if (!messages.length) return;
+  const crm = await verifiedCRMContext(c);
   const result = await runAI(id, "ANALYZE", messages, (provider) =>
-    provider.analyze(messages, signal),
+    provider.analyze(messages, signal, crm),
   );
   signal?.throwIfAborted();
   const info = validateEvidence(
     result.value,
     result.provider === "OPENAI" ? openaiEvidenceMessages(messages) : messages,
   );
+  const plan = replyContext(info, crm, info.language === "ES" ? "ES" : "EN");
+  info.questions = info.category === "Not a sales lead" ? [] : plan.questions;
+  info.missingInformation =
+    info.category === "Not a sales lead"
+      ? []
+      : [
+          ...(!plan.known.address ? ["Approximate property address"] : []),
+          ...(!plan.known.service ? ["Remodeling scope"] : []),
+          ...(!plan.known.availability ? ["Consultation availability"] : []),
+        ];
   await db.$transaction(async (tx) => {
     await tx.mailConversation.update({
       where: { id },
@@ -442,6 +619,12 @@ export async function linkCRM(u: User, id: string, input: unknown) {
         where: { id: d.customerId, ...customerScope(u) },
       });
       if (!customer) throw new Error("ACCESS_DENIED");
+      const current = await conversation(u, id, tx);
+      if (
+        !customer.email ||
+        customer.email.toLowerCase() !== current.senderEmail.toLowerCase()
+      )
+        throw new Error("RECIPIENT_MISMATCH");
       const lead = d.leadId
         ? await tx.lead.findFirst({
             where: { id: d.leadId, customerId: customer.id, ...leadScope(u) },
@@ -466,6 +649,7 @@ export async function linkCRM(u: User, id: string, input: unknown) {
         where: { id },
         data: {
           customerId: customer.id,
+          crmVerifiedAt: new Date(),
           leadId: lead?.id ?? opportunity?.leadId ?? null,
           opportunityId: opportunity?.id ?? null,
         },
@@ -504,6 +688,7 @@ export async function confirmLead(u: User, id: string, input: unknown) {
           "Review commercial classification before creating a lead",
         );
       if (c.leadId) return c.leadId;
+      if (hasForward(c.messages)) throw new Error("IDENTITY_REVIEW_REQUIRED");
       const matches = await tx.customer.findMany({
         where: { email: { equals: c.senderEmail, mode: "insensitive" } },
         take: 2,
@@ -521,18 +706,32 @@ export async function confirmLead(u: User, id: string, input: unknown) {
           serviceType: c.classification,
           source: "OTHER",
           assignedToId: c.assignedToId,
-          description: "Human-confirmed commercial email inquiry",
+          description: (
+            `Human-confirmed ${c.connection.provider} email inquiry. ` +
+            (intelligence(c)?.summary ?? "")
+          ).slice(0, 2000),
         },
       });
       await tx.mailConversation.update({
         where: { id },
-        data: { customerId: customer.id, leadId: lead.id },
+        data: {
+          customerId: customer.id,
+          leadId: lead.id,
+          crmVerifiedAt: new Date(),
+        },
       });
       await audit(
         tx,
         u.id,
         "EMAIL_LEAD_CONFIRMED",
-        { conversationId: id, source: "MAIL" },
+        {
+          conversationId: id,
+          source: c.connection.provider,
+          messageIds: c.messages
+            .filter((m) => m.direction === "INBOUND")
+            .map((m) => m.id),
+          summary: intelligence(c)?.summary ?? null,
+        },
         { customerId: customer.id, leadId: lead.id },
       );
       return lead.id;
@@ -580,6 +779,7 @@ export async function generateDraft(
   )
     throw new Error("Review sales classification first");
   assertCommercialReview(c);
+  await assertContactAllowed(c);
   const messages = c.messages
     .filter((m) => m.direction === "INBOUND")
     .slice(-5)
@@ -595,11 +795,55 @@ export async function generateDraft(
         ? "ES"
         : "EN"
       : language;
+  const info = intelligence(c);
+  if (!info || (language === "AUTO" && info.language === "UNKNOWN"))
+    throw new Error("HUMAN_REVIEW_REQUIRED");
+  const context = replyContext(
+    info,
+    await verifiedCRMContext(c),
+    replyLanguage,
+  );
+  const history = c.messages.slice(-6).map((m) => ({
+    id: m.id,
+    fromEmail: m.fromEmail,
+    subject: m.subject,
+    body: m.body,
+    direction: m.direction,
+  }));
+  if (purpose === "FOLLOW_UP") {
+    const event = await pipelineSuggestion(u, id);
+    if (!event) throw new Error("FOLLOW_UP_EVENT_REQUIRED");
+    context.followUp = {
+      stage: event.stage,
+      dueAt: event.dueAt.toISOString(),
+      action: textOnly(event.reason).slice(0, 300),
+    };
+    const existing = c.drafts.find(
+      (d) =>
+        !["REJECTED", "FAILED"].includes(d.status) &&
+        d.versions[0]?.source.endsWith(":FOLLOW_UP"),
+    );
+    if (existing) throw new Error("FOLLOW_UP_DUPLICATE");
+  }
   const result = await runAI(id, "DRAFT", messages, (provider) =>
-    provider.draft(messages, replyLanguage, purpose),
+    provider.draft(history, replyLanguage, purpose, context),
   );
   const body = validateDraft(result.value);
   return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "MailConversation" WHERE "id"=${id} FOR UPDATE`;
+    const fresh = await conversation(u, id, tx);
+    await assertContactAllowed(fresh, tx);
+    if (
+      purpose === "FOLLOW_UP" &&
+      (await tx.salesEmailDraft.findFirst({
+        where: {
+          conversationId: id,
+          status: { notIn: ["REJECTED", "FAILED"] },
+          versions: { some: { source: { endsWith: ":FOLLOW_UP" } } },
+        },
+      }))
+    )
+      throw new Error("FOLLOW_UP_DUPLICATE");
     const draft = await tx.salesEmailDraft.create({
       data: { conversationId: id },
     });
@@ -612,7 +856,7 @@ export async function generateDraft(
         body,
         bodyHash: digest(body),
         actorId: u.id,
-        source: result.provider,
+        source: result.provider + ":" + purpose,
       },
     });
     if (result.provider === "MOCK")
@@ -711,6 +955,7 @@ export async function reviewDraft(
       });
       const c = await conversation(u, d.conversationId, tx);
       const settings = await salesSettings(tx);
+      if (action === "approve") await assertContactAllowed(c, tx);
       if (d.version !== version) throw new Error("Draft changed; reload");
       if (action === "submit") {
         if (!["GENERATED", "EDITED", "REJECTED"].includes(d.status))
@@ -757,6 +1002,45 @@ export async function reviewDraft(
     { isolationLevel: "Serializable" },
   );
 }
+async function assertDeliveryHistory(
+  conversationId: string,
+  content: { bodyHash: string; recipient: string; subject: string },
+  tx: TX,
+) {
+  await tx.$queryRaw`SELECT "id" FROM "MailConversation" WHERE "id"=${conversationId} FOR UPDATE`;
+  if (
+    await tx.mailSendAttempt.findFirst({
+      where: {
+        draft: { conversationId },
+        status: { in: ["STARTED", "UNCERTAIN"] },
+      },
+      select: { id: true },
+    })
+  )
+    throw new Error("SEND_UNCERTAIN");
+  const sent = await tx.mailSendAttempt.findMany({
+    where: {
+      draft: { conversationId },
+      status: "SENT",
+      createdAt: { gte: new Date(Date.now() - 86400000) },
+    },
+    include: { draft: { include: { versions: true } } },
+  });
+  if (
+    sent.some((attempt) =>
+      attempt.draft.versions.some(
+        (v) =>
+          v.version === attempt.version &&
+          v.bodyHash === content.bodyHash &&
+          v.recipient.toLowerCase() === content.recipient.toLowerCase() &&
+          v.subject === content.subject,
+      ),
+    )
+  )
+    throw new Error(
+      "Send already attempted; uncertain outcomes must be verified externally",
+    );
+}
 export async function requestSend(u: User, id: string, version: number) {
   return db.$transaction(
     async (tx) => {
@@ -766,6 +1050,7 @@ export async function requestSend(u: User, id: string, version: number) {
       });
       const c = await conversation(u, d.conversationId, tx);
       const settings = await salesSettings(tx);
+      await assertContactAllowed(c, tx);
       if (!configuredRole(u, settings.sendRoles))
         throw new Error("ACCESS_DENIED");
       if (settings.outboundPaused) throw new Error("OUTBOUND_PAUSED");
@@ -784,7 +1069,36 @@ export async function requestSend(u: User, id: string, version: number) {
         throw new Error(
           "Send already attempted; uncertain outcomes must be verified externally",
         );
-      if (c.connection.provider !== "MOCK") throw new Error("LIVE_DISABLED");
+      if (c.connection.provider !== "MOCK") {
+        const consent = await tx.mailWriteConsent.findUnique({
+          where: { connectionId: c.connectionId },
+        });
+        throw new Error(
+          deliveryBlock(
+            c.connection.provider,
+            false,
+            !!consent && !consent.revokedAt,
+          )!,
+        );
+      }
+      if (
+        !d.approvedAt ||
+        c.messages.some(
+          (m) => m.direction === "INBOUND" && m.createdAt > d.approvedAt!,
+        )
+      )
+        throw new Error("HUMAN_REVIEW_REQUIRED");
+      const content = await tx.salesEmailVersion.findUniqueOrThrow({
+        where: { draftId_version: { draftId: id, version } },
+      });
+      if (
+        content.bodyHash !== digest(content.body) ||
+        content.recipient.toLowerCase() !== c.senderEmail.toLowerCase() ||
+        unsafeReply(content.subject + "\n" + content.body) ||
+        /[\r\n]/.test(content.subject)
+      )
+        throw new Error("ACCESS_DENIED");
+      await assertDeliveryHistory(c.id, content, tx);
       const key = `send:${id}:${version}`;
       const queued = await tx.salesJob.findUnique({ where: { key } });
       if (queued && ["PENDING", "RUNNING"].includes(queued.status)) return;
@@ -846,6 +1160,7 @@ export async function sendApproved(
       const settings = await salesSettings(tx);
       if (settings.outboundPaused) throw new Error("OUTBOUND_PAUSED");
       if (!settings.processingEnabled) throw new Error("PROCESSING_DISABLED");
+      await assertContactAllowed(c, tx);
       if (!configuredRole(user, settings.sendRoles))
         throw new Error("ACCESS_DENIED");
       if (
@@ -866,16 +1181,37 @@ export async function sendApproved(
         )
       )
         throw new Error("SEND_UNCERTAIN");
-      if (c.connection.provider !== "MOCK") throw new Error("LIVE_DISABLED");
+      if (c.connection.provider !== "MOCK") {
+        const consent = await tx.mailWriteConsent.findUnique({
+          where: { connectionId: c.connectionId },
+        });
+        throw new Error(
+          deliveryBlock(
+            c.connection.provider,
+            false,
+            !!consent && !consent.revokedAt,
+          )!,
+        );
+      }
       if (!c.connection.connected || !c.connection.consented)
         throw new Error("AUTH_REQUIRED");
+      if (
+        !d.approvedAt ||
+        c.messages.some(
+          (m) => m.direction === "INBOUND" && m.createdAt > d.approvedAt!,
+        )
+      )
+        throw new Error("HUMAN_REVIEW_REQUIRED");
       const content = d.versions[0];
       if (
         !content ||
         unsafeReply(content.subject + "\n" + content.body) ||
-        content.recipient.toLowerCase() !== c.senderEmail.toLowerCase()
+        content.recipient.toLowerCase() !== c.senderEmail.toLowerCase() ||
+        content.bodyHash !== digest(content.body) ||
+        /[\r\n]/.test(content.subject)
       )
         throw new Error("ACCESS_DENIED");
+      await assertDeliveryHistory(c.id, content, tx);
       const key = digest(`${id}:${version}`);
       const attempt = await tx.mailSendAttempt.create({
         data: { draftId: id, version, idempotencyKey: key, actorId: userId },
@@ -983,6 +1319,12 @@ export async function followUp(u: User, id: string, input: unknown) {
     .parse(input);
   return db.$transaction(async (tx) => {
     const c = await conversation(u, id, tx);
+    await assertContactAllowed(c, tx);
+    await tx.$queryRaw`SELECT "id" FROM "MailConversation" WHERE "id"=${id} FOR UPDATE`;
+    const duplicate = await tx.salesFollowUp.findFirst({
+      where: { conversationId: id, completedAt: null },
+    });
+    if (duplicate) throw new Error("FOLLOW_UP_DUPLICATE");
     await tx.salesFollowUp.create({
       data: {
         conversationId: id,
@@ -1036,6 +1378,10 @@ export async function disconnectMailbox(u: User, id: string) {
               tokenExpiresAt: null,
             }),
       },
+    });
+    await tx.mailWriteConsent.updateMany({
+      where: { connectionId: id },
+      data: { revokedAt: new Date() },
     });
     if (c.provider === "ZOHO" && c.tokenCipher)
       await enqueue(

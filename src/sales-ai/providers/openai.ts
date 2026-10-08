@@ -1,3 +1,9 @@
+import {
+  hasForward,
+  validateContextualReply,
+  type ReplyContext,
+  type VerifiedCRM,
+} from "../domain/context";
 import OpenAI from "openai";
 import { z } from "zod";
 import { textOnly } from "../domain/security";
@@ -18,6 +24,23 @@ const replySchema = z.strictObject({ body: z.string().min(1).max(15000) });
 export const openaiIntelligenceSchema = intelligenceSchema
   .extend({
     mailKind,
+    customerName: z.string().min(1).max(1000).nullable(),
+    phone: z.string().min(1).max(1000).nullable(),
+    projectLocation: z.string().min(1).max(1000).nullable(),
+    budget: z.string().min(1).max(1000).nullable(),
+    timeline: z.string().min(1).max(1000).nullable(),
+    propertyAddress: z.string().min(1).max(1000).nullable(),
+    consultationAvailability: z.string().min(1).max(1000).nullable(),
+    materials: z.array(z.string().min(1).max(200)).max(20),
+    evidence: z
+      .array(
+        z.strictObject({
+          field: z.string().min(1).max(100),
+          messageId: z.string().min(1),
+          quote: z.string().min(1).max(1000),
+        }),
+      )
+      .max(30),
     language: z.enum(["EN", "ES", "UNKNOWN"]),
     needsHumanReview: z.boolean(),
   })
@@ -74,9 +97,9 @@ export type AITransport = (
   init: RequestInit,
 ) => Promise<Response>;
 export function minimalInquiry(messages: AnalysisMessage[]) {
-  return messages.slice(-3).map((m) => ({
+  return messages.slice(-6).map((m) => ({
     id: m.id,
-
+    direction: m.direction ?? "INBOUND",
     subject: m.subject.slice(0, 500),
     body: textOnly(m.body)
       .slice(0, 3000)
@@ -112,9 +135,20 @@ export class OpenAISalesAI implements SalesAIProvider {
     schema: z.ZodType<T>,
     task: string,
     signal?: AbortSignal,
+    context?: VerifiedCRM | ReplyContext,
   ): Promise<AIResult<T>> {
     const timeout = AbortSignal.timeout(45000);
     const abort = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    if (
+      Buffer.byteLength(
+        JSON.stringify({
+          inquiry: minimalInquiry(messages),
+          context: context ?? null,
+        }),
+        "utf8",
+      ) > 45000
+    )
+      throw new Error("AI_REQUEST_LIMIT");
     let response: unknown;
     try {
       const client = new OpenAI({
@@ -134,6 +168,7 @@ export class OpenAISalesAI implements SalesAIProvider {
           instructions: SALES_AI_BOUNDARY + " " + task,
           input: JSON.stringify({
             untrusted_inquiry: minimalInquiry(messages),
+            verified_context: context ?? null,
           }),
           max_output_tokens: 1500,
           text: {
@@ -261,12 +296,17 @@ export class OpenAISalesAI implements SalesAIProvider {
       outputTokens: raw.usage.output_tokens,
     };
   }
-  async analyze(messages: AnalysisMessage[], signal?: AbortSignal) {
+  async analyze(
+    messages: AnalysisMessage[],
+    signal?: AbortSignal,
+    crm?: VerifiedCRM,
+  ) {
     const result = await this.structured(
       messages,
       openaiIntelligenceSchema,
-      "Classify mailKind as POTENTIAL_CUSTOMER, EXISTING_CUSTOMER, SUPPLIER, ADVERTISEMENT, SPAM or OTHER. Classify unsolicited website/marketing offers as ADVERTISEMENT even when they mention remodeling. Set category to Not a sales lead for suppliers, advertisements, spam and other unrelated mail. language is EN, ES or UNKNOWN. needsHumanReview is true if uncertain. Return email null (sender is resolved locally). Return source MAIL. Cite exact input message IDs and literal quotes for every non-null extracted fact. Each customerName, phone, projectLocation, budget and timeline must be a literal substring of its evidence quote; do not normalize, translate or reformat those values. Missing scalar facts are null, not empty strings or labels such as unknown. Evidence field names must match the JSON property names exactly. Keep output concise. Budget only if explicitly stated. Treat newsletters and unrelated mail as Not a sales lead.",
+      "Classify mailKind as POTENTIAL_CUSTOMER, EXISTING_CUSTOMER, SUPPLIER, ADVERTISEMENT, SPAM or OTHER. Classify unsolicited website/marketing offers as ADVERTISEMENT even when they mention remodeling. Set category to Not a sales lead for suppliers, advertisements, spam and other unrelated mail. language is EN, ES or UNKNOWN. needsHumanReview is true if uncertain. Return email null (sender is resolved locally). Return source MAIL. Cite exact input message IDs and literal quotes for every non-null extracted fact. Each customerName, phone, projectLocation, budget and timeline must be a literal substring of its evidence quote; do not normalize, translate or reformat those values. Missing scalar facts are null, not empty strings or labels such as unknown. Evidence field names must match the JSON property names exactly. Extract explicit propertyAddress and consultationAvailability with literal evidence matching those field names; absent facts are null. Extract requested materials into materials with literal evidence named materials. Use verified CRM only as context; extraction fields still require email evidence. Use all supplied conversation history, but never attribute a quoted or forwarded name to the current sender. Avoid questions about already supplied facts; at most three questions. Use empty arrays, never null, for absent array facts. Keep literal quotes short and output concise. Budget only if explicitly stated. Treat newsletters and unrelated mail as Not a sales lead.",
       signal,
+      crm,
     );
     const sanitized = openaiEvidenceMessages(messages);
     let value;
@@ -285,7 +325,13 @@ export class OpenAISalesAI implements SalesAIProvider {
     value.email = messages.at(-1)?.fromEmail ?? null;
     if (
       value.urgency !== "UNKNOWN" &&
-      !value.evidence.some((e) => e.field === "urgency")
+      !value.evidence.some(
+        (e) =>
+          e.field === "urgency" &&
+          /\b(?:urgent|urgente|asap|as soon as possible|cuanto antes|inmediatamente|emergency|emergencia)\b/i.test(
+            e.quote,
+          ),
+      )
     )
       value.urgency = "UNKNOWN";
     value.requestedServices = value.requestedServices.filter((service) =>
@@ -299,7 +345,9 @@ export class OpenAISalesAI implements SalesAIProvider {
     value.needsHumanReview =
       value.needsHumanReview ||
       value.confidence < 0.75 ||
-      value.mailKind === "OTHER";
+      value.mailKind === "OTHER" ||
+      value.language === "UNKNOWN" ||
+      hasForward(messages);
     if (!["POTENTIAL_CUSTOMER", "EXISTING_CUSTOMER"].includes(value.mailKind))
       value.category = "Not a sales lead";
     return { ...result, value };
@@ -308,14 +356,22 @@ export class OpenAISalesAI implements SalesAIProvider {
     messages: AnalysisMessage[],
     language: "EN" | "ES",
     purpose: "QUALIFY" | "FOLLOW_UP" = "QUALIFY",
+    context?: ReplyContext,
   ) {
     const result = await this.structured(
       messages,
       replySchema,
-      `Draft only a short neutral ${purpose === "FOLLOW_UP" ? "follow-up" : "qualifying"} reply in ${language === "ES" ? "Spanish" : "English"}. Ask about missing scope, property address and timeline or visit availability. No prices, links, discounts, guarantees or contracts.`,
+      `Draft only a short neutral ${purpose === "FOLLOW_UP" ? "follow-up" : "qualifying"} reply in ${language === "ES" ? "Spanish" : "English"}. Ask about missing scope, property address and timeline or visit availability. No prices, links, discounts, guarantees, free consultation claims, availability promises or contracts. ${context ? "Use known facts and the supplied follow-up event, if present, to acknowledge the inquiry without repeating sensitive numbers. A scheduled next action is not confirmation of a customer appointment; never promise or invent a date. Include exactly the locally supplied questions, verbatim, and no other questions or requests for information. Do not ask for email, budget, timeline or scope already known. Use a neutral greeting; no invented name. Keep the reply warm, professional and under 1800 characters." : ""}`,
+      undefined,
+      context,
     );
     try {
-      return { ...result, value: validateDraft(result.value.body) };
+      return {
+        ...result,
+        value: context
+          ? validateContextualReply(validateDraft(result.value.body), context)
+          : validateDraft(result.value.body),
+      };
     } catch {
       throw new OpenAIOutputError("INVALID_AI_OUTPUT_UNSAFE", {
         stage: "SAFETY",

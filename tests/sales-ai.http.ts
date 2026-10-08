@@ -64,6 +64,8 @@ async function main() {
     const diagnosticPage = await fetch(base + "/owner/ai", { headers: owner.headers });
     assert.equal(diagnosticPage.status, 200);
     const diagnosticHtml = await diagnosticPage.text();
+    assert.match(diagnosticHtml, /Separate Zoho sending consent/);
+    assert.match(diagnosticHtml, /OAuth write NOT configured|This release cannot request a write token/);
     for (const stage of ["FORMAT", "SCHEMA", "COMPLETION", "SAFETY"])
       assert.match(diagnosticHtml, new RegExp("Validation stage: (?:<!-- -->)?" + stage));
     for (const [i, { u, headers }] of users.entries()) {

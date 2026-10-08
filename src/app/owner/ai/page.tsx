@@ -10,6 +10,7 @@ import {
   mailboxAction,
   connectZoho,
   retryRevocation,
+  writeConsentAction,
 } from "@/sales-ai/actions";
 import { DateTime, Mode, Notice } from "@/sales-ai/components";
 const diagnosticView = z.object({
@@ -39,7 +40,10 @@ const diagnosticView = z.object({
         "email",
         "phone",
         "projectLocation",
+        "propertyAddress",
+        "consultationAvailability",
         "requestedServices",
+        "materials",
         "budget",
         "timeline",
         "urgency",
@@ -93,6 +97,24 @@ export default async function AIAdmin({
       errorCode: true,
     },
   });
+  const [writeConsents, pendingReplies] = await Promise.all([
+    db.mailWriteConsent.findMany({
+      select: { connectionId: true, revokedAt: true, consentedAt: true },
+    }),
+    db.salesEmailDraft.findMany({
+      where: { status: { in: ["PENDING_REVIEW", "APPROVED", "FAILED"] } },
+      orderBy: { updatedAt: "desc" },
+      take: 30,
+      select: {
+        id: true,
+        version: true,
+        status: true,
+        lastError: true,
+        conversationId: true,
+        conversation: { select: { subject: true } },
+      },
+    }),
+  ]);
   const requestDiagnostics = await db.activity.findMany({
     where: {
       type: "AI_REQUEST_RECORDED",
@@ -175,6 +197,65 @@ export default async function AIAdmin({
         Real email sending is disabled. Zoho connection grants read-only access.
       </p>
       <Notice {...p} />
+      <section className="panel">
+        <h2>Replies requiring attention</h2>
+        <p>
+          GENERATED → PENDING_REVIEW → APPROVED. Approval never enables
+          delivery. PAUSED is a delivery block; SENT is confirmed; FAILED may
+          require manual verification.
+        </p>
+        {pendingReplies.map((d) => (
+          <a className="row" key={d.id} href={"/ai/inbox/" + d.conversationId}>
+            <span>
+              {d.conversation.subject} · Version {d.version}
+            </span>
+            <span className="badge">
+              {d.status}
+              {d.lastError ? " · " + d.lastError : ""}
+            </span>
+          </a>
+        ))}
+        {!pendingReplies.length && <p>No replies awaiting action.</p>}
+      </section>
+      <section className="panel">
+        <h2>Separate Zoho sending consent — preparation only</h2>
+        <p>
+          Read authorization stays unchanged. Future sending requires
+          ZohoMail.accounts.READ and ZohoMail.messages.CREATE in a separate
+          grant, explicit OWNER consent and activation approval. No ALL, UPDATE,
+          DELETE or folder write scopes. This release cannot request a write
+          token or send real mail.
+        </p>
+        {connections
+          .filter((c) => c.provider === "ZOHO")
+          .map((c) => {
+            const consent = writeConsents.find(
+              (w) => w.connectionId === c.id && !w.revokedAt,
+            );
+            return (
+              <form key={c.id} action={writeConsentAction} className="form">
+                <input type="hidden" name="id" value={c.id} />
+                <p>
+                  {c.address} ·{" "}
+                  {consent
+                    ? "Consent prepared; OAuth write NOT configured"
+                    : "Read only; write NOT configured"}
+                </p>
+                <label>
+                  <input type="checkbox" name="consent" required={!consent} /> I
+                  am the OWNER and consent to preparing a separate sending
+                  authorization for this mailbox. This does not activate
+                  sending.
+                </label>
+                <button name="operation" value={consent ? "revoke" : "prepare"}>
+                  {consent
+                    ? "Revoke prepared consent & pause outbound"
+                    : "Prepare consent only"}
+                </button>
+              </form>
+            );
+          })}
+      </section>
       <section className="panel">
         <h2>OpenAI monthly budget · {budget.month} UTC</h2>
         <div className="form">

@@ -77,6 +77,7 @@ enum Unit {
  FLAT
 }
 model User {
+ mailWriteConsents MailWriteConsent[]
  financialPolicies FinancialPolicy[]
  estimates Estimate[]
  estimateApprovals EstimateApproval[]
@@ -496,6 +497,7 @@ model SalesAISettings {
  oauthSecretCipher String?
 }
 model MailConnection {
+ writeConsent MailWriteConsent?
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -518,6 +520,8 @@ model MailConnection {
  @@unique([provider,accountId])
 }
 model MailConversation {
+ doNotContact Boolean @default(false)
+ crmVerifiedAt DateTime?
  reviewedAt DateTime?
  id String @id @default(cuid())
  createdAt DateTime @default(now())
@@ -674,4 +678,19 @@ model SalesAIUsage {
  estimatedCost Decimal? @db.Decimal(14,6)
  success Boolean
  errorCode String?
+}
+
+model MailWriteConsent {
+ id String @id @default(cuid())
+ connectionId String @unique
+ connection MailConnection @relation(fields: [connectionId], references: [id])
+ ownerId String
+ owner User @relation(fields: [ownerId], references: [id])
+ consentedAt DateTime
+ revokedAt DateTime?
+ region String
+ accountId String
+ address String
+ scopes Json
+ // Consent is preparation only; it is never proof of OAuth authorization.
 }

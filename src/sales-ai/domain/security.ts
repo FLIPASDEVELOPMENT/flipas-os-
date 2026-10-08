@@ -44,7 +44,7 @@ export function textOnly(html: string) {
     .slice(0, 30000);
 }
 export function unsafeReply(text: string) {
-  return /\$\s*\d|\b\d+\s*%|discount|descuento|guarantee|garant[ií]|warranty|insured|licensed|contractually|system prompt|api[_ ]?key|password|internal cost|\b(?:USD|dollars?|pricing|price|precios?|contract|contrato|percent)\b|https?:\/\/|www\./i.test(
+  return /\b(?:complimentary|free consultation|free estimate|consulta gratuita|consulta gratis|sin costo|we guarantee|we promise|we are available|we can start|estamos disponibles|podemos comenzar|garantizamos|prometemos)\b|\$\s*\d|\b\d+\s*%|discount|descuento|guarantee|garant[ií]|warranty|insured|licensed|contractually|system prompt|api[_ ]?key|password|internal cost|\b(?:USD|dollars?|pricing|price|precios?|contract|contrato|percent)\b|https?:\/\/|www\./i.test(
     text,
   );
 }
@@ -54,6 +54,7 @@ export function allowedAttachment(name: string, size: number) {
   );
 }
 const businessErrors: Record<string, string> = {
+  "OWNER access required": "ACCESS_DENIED",
   "Review commercial classification before creating a lead": "NOT_COMMERCIAL",
   "Review sales classification first": "NOT_COMMERCIAL",
   "Existing or ambiguous customer match; link the CRM record explicitly":
@@ -78,7 +79,7 @@ const businessErrors: Record<string, string> = {
 export function safeError(e: unknown) {
   if (!(e instanceof Error)) return "PROVIDER_FAILURE";
   if (businessErrors[e.message]) return businessErrors[e.message];
-  return /^(AI_PAUSED|AI_CONFIG_REQUIRED|AI_EMAIL_LIMIT|AI_REQUEST_LIMIT|AI_BUDGET_LIMIT|HUMAN_REVIEW_REQUIRED|REGION_UNSUPPORTED|REVOCATION_PENDING|JOB_TIMEOUT|RATE_LIMIT|AUTH_REQUIRED|TOKEN_REFRESH_FAILED|PROVIDER_REJECTED|SEND_UNCERTAIN|PROCESSING_DISABLED|OUTBOUND_PAUSED|LIVE_DISABLED|LEASE_EXPIRED|INVALID_AI_OUTPUT(?:_FORMAT|_SCHEMA|_ENVELOPE|_EVIDENCE|_UNSAFE)?|AI_OUTPUT_INCOMPLETE|AI_OUTPUT_REFUSED|AI_RESPONSE_FAILED|AI_API_PERMISSION_DENIED|AI_MODEL_UNAVAILABLE|AI_API_REQUEST_REJECTED|ACCESS_DENIED)$/.test(
+  return /^(AI_PAUSED|AI_CONFIG_REQUIRED|AI_EMAIL_LIMIT|AI_REQUEST_LIMIT|AI_BUDGET_LIMIT|HUMAN_REVIEW_REQUIRED|REGION_UNSUPPORTED|REVOCATION_PENDING|JOB_TIMEOUT|RATE_LIMIT|AUTH_REQUIRED|TOKEN_REFRESH_FAILED|PROVIDER_REJECTED|SEND_UNCERTAIN|PROCESSING_DISABLED|OUTBOUND_PAUSED|LIVE_DISABLED|LEASE_EXPIRED|INVALID_AI_OUTPUT(?:_FORMAT|_SCHEMA|_ENVELOPE|_EVIDENCE|_UNSAFE)?|AI_OUTPUT_INCOMPLETE|AI_OUTPUT_REFUSED|AI_RESPONSE_FAILED|AI_API_PERMISSION_DENIED|AI_MODEL_UNAVAILABLE|AI_API_REQUEST_REJECTED|ACCESS_DENIED|WRITE_AUTH_REQUIRED|CONTACT_SUPPRESSED|IDENTITY_REVIEW_REQUIRED|FOLLOW_UP_CLOSED|FOLLOW_UP_DUPLICATE|FOLLOW_UP_EVENT_REQUIRED)$/.test(
     e.message,
   )
     ? e.message

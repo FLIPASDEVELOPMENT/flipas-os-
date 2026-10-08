@@ -1,3 +1,4 @@
+import { writeScopes } from "../domain/delivery";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { textOnly } from "../domain/security";
@@ -122,4 +123,18 @@ export class ZohoMailProvider implements MailProvider {
   }
   async send(): Promise<{messageId: string}> { throw new Error("LIVE_DISABLED"); }
   async disconnect(): Promise<void> { throw new Error("AUTH_REQUIRED"); }
+}
+
+/** Separate prospective authorization; read flow never requests CREATE. */
+export function writeAuthorizeUrl(
+  region: string,
+  clientId: string,
+  redirectUri: string,
+  state: string,
+  ownerConsent: boolean,
+) {
+  if (!ownerConsent) throw new Error("WRITE_AUTH_REQUIRED");
+  const url = new URL(authorizeUrl(region, clientId, redirectUri, state));
+  url.searchParams.set("scope", writeScopes.join(","));
+  return url.toString();
 }

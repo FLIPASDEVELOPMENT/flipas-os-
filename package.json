@@ -26,7 +26,8 @@
     "env:mail": "node scripts/create-mail-key.mjs",
     "test:zoho": "tsx --test tests/zoho.integration.ts",
     "env:openai": "node scripts/create-openai-env.mjs",
-    "test:openai": "tsx --test tests/openai-budget.integration.ts"
+    "test:openai": "tsx --test tests/openai-budget.integration.ts",
+    "test:commercial": "tsx --test tests/commercial.integration.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",

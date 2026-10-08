@@ -71,10 +71,22 @@ export function Notice({ error, saved }: { error?: string; saved?: string }) {
                 "Check the private server configuration or reconnect the authorized mailbox.",
               ACCESS_DENIED:
                 "Your role or assignment does not permit this action.",
+              WRITE_AUTH_REQUIRED:
+                "This mailbox has read-only authorization. Separate OWNER write consent and Zoho write authorization are required; real delivery remains disabled.",
+              CONTACT_SUPPRESSED:
+                "This contact requested no further contact. Drafting, approval, sending and follow-ups are blocked.",
+              IDENTITY_REVIEW_REQUIRED:
+                "Forwarded mail requires manual identity verification. Do not create a contact from the quoted sender.",
+              FOLLOW_UP_CLOSED:
+                "This opportunity is closed. No follow-up or outbound action is allowed.",
+              FOLLOW_UP_DUPLICATE:
+                "An open follow-up task or draft already exists. Review it instead of creating a duplicate.",
+              FOLLOW_UP_EVENT_REQUIRED:
+                "Set a verified pipeline next action and date before drafting a follow-up.",
               OUTBOUND_PAUSED: "Outbound mail is paused by the owner.",
               PROCESSING_DISABLED: "AI processing is disabled.",
               LIVE_DISABLED:
-                "Live providers remain locked pending documentation verification and owner authorization.",
+                "Real email delivery remains disabled in this release. Preparing consent and approving a draft do not activate sending.",
               INVALID_INPUT: "Check the required fields and date format.",
               SEND_UNCERTAIN:
                 "Delivery is uncertain. Verify the provider mailbox; do not retry.",

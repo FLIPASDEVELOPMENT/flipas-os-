@@ -396,6 +396,10 @@ test("durable inbox, human CRM confirmation and exact-version approval", async (
       await service.reviewDraft(sales, id, "submit", 2);
       await service.reviewDraft(owner, id, "approve", 2);
       await assert.rejects(service.requestSend(owner, id, 2), /uncertain/);
+      const replacement = await service.generateDraft(sales, thread.id, "EN");
+      await service.reviewDraft(sales, replacement, "submit", 1);
+      await service.reviewDraft(owner, replacement, "approve", 1);
+      await assert.rejects(service.requestSend(owner, replacement, 1), /SEND_UNCERTAIN/);
       assert.equal(sends, 1);
     },
   );
@@ -568,7 +572,14 @@ test("durable inbox, human CRM confirmation and exact-version approval", async (
       assert.notEqual(a.id, b.id);
       await runJob(a);
       await runJob(b);
-      const id = await approved();
+      // Independent conversation: an uncertain delivery on the original thread must not be bypassed.
+      const leaseThread = await db.mailConversation.create({ data: { connectionId: connection.id, threadId: "lease-isolation", subject: "Kitchen lease test", senderEmail: "lease@example.invalid", assignedToId: sales.id, classification: "Kitchen Remodeling" } });
+      await db.mailMessage.create({ data: { conversationId: leaseThread.id, providerMessageId: "lease-inbound", receivedAt: new Date(), fromEmail: leaseThread.senderEmail, toEmail: connection.address, subject: leaseThread.subject, body: "Please remodel my kitchen." } });
+      await service.analyzeConversation(leaseThread.id);
+      const id = await service.generateDraft(sales, leaseThread.id, "EN");
+      await service.reviewDraft(sales, id, "submit", 1);
+      await service.reviewDraft(owner, id, "approve", 1);
+      await service.requestSend(owner, id, 1);
       await db.salesJob.updateMany({
         where: { key: "send:" + id + ":1" },
         data: {

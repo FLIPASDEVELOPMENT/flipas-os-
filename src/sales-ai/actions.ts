@@ -97,6 +97,8 @@ export async function threadAction(f: FormData) {
           dueAt: field(f, "dueAt"),
           reason: field(f, "reason"),
         });
+      case "contact":
+        return service.contactPreference(u, id, f.has("doNotContact"));
       case "mark": {
         const c = await service.conversation(u, id);
         const category = classification.parse(field(f, "classification"));
@@ -248,4 +250,16 @@ export async function retryRevocation(f: FormData) {
       });
     });
   });
+}
+
+export async function writeConsentAction(f: FormData) {
+  const u = await requireOwner();
+  const { prepareWriteConsent, revokeWriteConsent } = await import(
+    "./server/write-consent"
+  );
+  await action("/owner/ai", () =>
+    field(f, "operation") === "revoke"
+      ? revokeWriteConsent(u, field(f, "id"))
+      : prepareWriteConsent(u, field(f, "id"), f.has("consent")),
+  );
 }

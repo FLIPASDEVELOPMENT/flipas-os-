@@ -8,6 +8,7 @@ import {
   analyzeConversation,
   sendApproved,
   audit,
+  assertContactAllowed,
 } from "./service";
 import { withDeadline } from "../domain/deadline";
 import { safeError } from "../domain/security";
@@ -126,6 +127,21 @@ export async function runJob(job: SalesJob) {
           });
           for (const f of overdue) {
             signal.throwIfAborted();
+            try {
+              await assertContactAllowed(f.conversation);
+            } catch (e) {
+              if (
+                !["CONTACT_SUPPRESSED", "FOLLOW_UP_CLOSED"].includes(
+                  safeError(e),
+                )
+              )
+                throw e;
+              await db.salesFollowUp.update({
+                where: { id: f.id },
+                data: { completedAt: new Date() },
+              });
+              continue;
+            }
             const key = `overdue:${f.id}`;
             await db.$transaction(async (tx) => {
               const exists = await tx.activity.findFirst({

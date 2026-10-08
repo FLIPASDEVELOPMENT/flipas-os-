@@ -1,3 +1,4 @@
+import { directBody } from "./context";
 import { z } from "zod";
 export const classification = z.enum([
   "Kitchen Remodeling",
@@ -28,6 +29,9 @@ export const intelligenceSchema = z.object({
   email: z.email().nullable(),
   phone: nullable,
   projectLocation: nullable,
+  propertyAddress: nullable.default(null),
+  consultationAvailability: nullable.default(null),
+  materials: z.array(z.string().max(200)).max(20).default([]),
   requestedServices: z.array(z.string().max(200)).max(20),
   budget: nullable,
   timeline: nullable,
@@ -49,6 +53,7 @@ export const intelligenceSchema = z.object({
 });
 export type Intelligence = z.infer<typeof intelligenceSchema>;
 export type AnalysisMessage = {
+  direction?: string;
   id: string;
   fromEmail: string;
   subject: string;
@@ -61,10 +66,19 @@ export function validateEvidence(value: unknown, messages: AnalysisMessage[]) {
     if (!m || !`${m.subject}\n${m.body}`.includes(proof.quote))
       throw new Error("INVALID_AI_OUTPUT");
   }
+  for (const material of result.materials)
+    if (
+      !result.evidence.some(
+        (e) => e.field === "materials" && e.quote.includes(material),
+      )
+    )
+      throw new Error("INVALID_AI_OUTPUT");
   for (const field of [
     "customerName",
     "phone",
     "projectLocation",
+    "propertyAddress",
+    "consultationAvailability",
     "budget",
     "timeline",
   ] as const)
@@ -86,10 +100,18 @@ export function validateEvidence(value: unknown, messages: AnalysisMessage[]) {
 }
 export function mockIntelligence(messages: AnalysisMessage[]): Intelligence {
   const m = messages.at(-1)!;
-  const text = m.subject + "\n" + m.body;
+  const history = messages
+    .filter((message) => message.direction !== "OUTBOUND")
+    .slice(-6)
+    .reverse();
+  const direct = history.map((message) => directBody(message.body)).join("\n");
+  const text = history
+    .map((message) => message.subject + "\n" + directBody(message.body))
+    .join("\n");
+  const latestText = m.subject + "\n" + directBody(m.body);
   const notSales =
-    /unsubscribe|newsletter|automated notification|password reset|newsletter|offer expires|lottery/i.test(
-      text,
+    /unsubscribe|newsletter|automated notification|password reset|offer expires|lottery|marketing specialist|custom website|create a.{0,20}website|sitio web|publicidad/i.test(
+      latestText,
     );
   let category: Intelligence["category"] = "Not a sales lead";
   if (!notSales) {
@@ -104,22 +126,79 @@ export function mockIntelligence(messages: AnalysisMessage[]): Intelligence {
   const budget = text.match(
     /(?:budget|presupuesto)[^\n$]{0,60}(\$[\d,]+(?:\.\d{2})?)/i,
   );
-  const evidence: Intelligence["evidence"] = budget
-    ? [{ field: "budget", messageId: m.id, quote: budget[1] }]
-    : [];
+  const evidence: Intelligence["evidence"] = [];
+  const fact = (field: string, value: string | null) => {
+    const source = value
+      ? history.find((message) =>
+          `${message.subject}\n${message.body}`.includes(value),
+        )
+      : null;
+    if (value && source)
+      evidence.push({ field, messageId: source.id, quote: value });
+    return value;
+  };
+  const customerName =
+    direct.match(
+      /(?:my name is|I am|I'm|soy|me llamo)\s+([\p{L}]+(?: [\p{L}]+){1,3})/iu,
+    )?.[1] ?? null;
+  const location =
+    text.match(/\b(?:Tampa|Orlando|Miami)(?:,? (?:FL|Florida))?\b/i)?.[0] ??
+    null;
+  const timeline =
+    text.match(
+      /\b\d+(?:\s*[-–]\s*\d+)?\s*(?:weeks?|semanas?|months?|meses)\b/i,
+    )?.[0] ?? null;
+  const range =
+    text.match(
+      /(?:budget|presupuesto)[^\n$]{0,60}(\$[\d,]+(?:\s*[-–]\s*\$[\d,]+)?)/i,
+    )?.[1] ??
+    budget?.[1] ??
+    null;
+  const materials = [
+    ...new Set(
+      text.match(
+        /\b(?:cabinets|gabinetes|countertops|encimeras|backsplash|LED)\b/gi,
+      ) ?? [],
+    ),
+  ];
+  for (const value of materials) fact("materials", value);
+  if (category !== "Not a sales lead")
+    fact(
+      "requestedServices",
+      /kitchen|cabinet|cocina/i.test(text)
+        ? (text.match(/kitchen|cabinet|cocina/i)?.[0] ?? null)
+        : null,
+    );
+
   return {
-    mailKind: category === "Not a sales lead" ? "OTHER" : "POTENTIAL_CUSTOMER",
+    mailKind:
+      category === "Not a sales lead"
+        ? /marketing|website|sitio web|publicidad/i.test(text)
+          ? "ADVERTISEMENT"
+          : "OTHER"
+        : "POTENTIAL_CUSTOMER",
     language: /hola|quiero|presupuesto|cocina|baño/i.test(text) ? "ES" : "EN",
     needsHumanReview: true,
     category,
     source: "MAIL",
-    customerName: null,
+    customerName: fact("customerName", customerName),
     email: m.fromEmail,
     phone: null,
-    projectLocation: null,
+    projectLocation: fact("projectLocation", location),
+    propertyAddress: fact(
+      "propertyAddress",
+      direct.match(
+        /(?:address is|property is at|direcci[oó]n es|propiedad est[aá] en)\s+([^\n.!?]+)/i,
+      )?.[1] ?? null,
+    ),
+    consultationAvailability: fact(
+      "consultationAvailability",
+      direct.match(/(?:available|disponible)\s+([^\n.!?]+)/i)?.[1] ?? null,
+    ),
+    materials,
     requestedServices: category === "Not a sales lead" ? [] : [category],
-    budget: budget?.[1] ?? null,
-    timeline: null,
+    budget: fact("budget", range),
+    timeline: fact("timeline", timeline),
     urgency: "UNKNOWN",
     missingInformation: [
       "Customer name",

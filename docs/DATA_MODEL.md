@@ -25,3 +25,6 @@ Migration 202610070004_owner_console adds immutable FinancialPolicy versions, Fi
 The additive 202610080001_ai_sales migration adds mail connections/threads/messages, settings, immutable draft versions, send attempts, follow-ups, jobs, OAuth state and usage. Scalar CRM/user foreign keys and lifecycle checks are enforced by SQL. No existing estimate snapshot or financial policy is changed.
 
 OpenAI budget: `SalesAIBudgetMonth` serializes reservations; `SalesAIUsage` records operation, month, message, token counts, frozen rates, estimated/reserved cost and outcome. OWNER settings default to $10 budget/$5 alert and include an independent AI pause. `MailConversation.reviewedAt` records explicit human review. Provider keys reside only in private server environment; migration clears legacy OpenAI DB keys.
+
+
+Phase 3 commercial safety adds `MailConversation.doNotContact`, `crmVerifiedAt` and `MailWriteConsent` (OWNER/account/region-bound preparation metadata, no OAuth tokens). Analysis JSON supports evidenced materials, property address and consultation availability with backwards-compatible defaults. See [commercial hardening](PHASE_3_COMMERCIAL_HARDENING.md).

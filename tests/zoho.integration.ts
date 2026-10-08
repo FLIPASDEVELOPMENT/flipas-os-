@@ -46,9 +46,9 @@ test("OWNER OAuth discovery/consent, encrypted refresh, readonly sync/dedup, har
     await analyzeConversation(thread.id);
     const draftId=await generateDraft(owner,thread.id,"EN","QUALIFY");
     await reviewDraft(owner,draftId,"submit",1);await reviewDraft(owner,draftId,"approve",1);
-    await assert.rejects(requestSend(owner,draftId,1),/LIVE_DISABLED/);
+    await assert.rejects(requestSend(owner,draftId,1),/WRITE_AUTH_REQUIRED/);
     await db.salesEmailDraft.update({where:{id:draftId},data:{requestedById:owner.id}});
-    await assert.rejects(sendApproved(draftId,1,owner.id),/LIVE_DISABLED/);assert.equal(sends,0);assert.equal(await db.mailSendAttempt.count(),0);
+    await assert.rejects(sendApproved(draftId,1,owner.id),/WRITE_AUTH_REQUIRED/);assert.equal(sends,0);assert.equal(await db.mailSendAttempt.count(),0);
     await assert.rejects(disconnectMailbox(sales,c.id));await disconnectMailbox(owner,c.id);
     await assert.rejects(syncMailbox(c.id),/AUTH_REQUIRED/);
     assert.equal(await db.salesJob.count({where:{type:"REVOKE",status:"PENDING"}}),1);

@@ -170,3 +170,5 @@ TLS and npm package integrity remain enabled. The proxy CA is not copied into th
 See [docs/AI_SALES.md](docs/AI_SALES.md) for `/ai`, the inbox, approval flow, PostgreSQL worker and mock startup. Run `npm run worker:ai` beside `npm run dev`. The Zoho Mail connector is implemented for OWNER-authorized read-only US/EU access; real email sending stays disabled. See [Zoho configuration](docs/ZOHO_MAIL.md); the OpenAI adapter is simulated-response-tested and remains off by default; no customer emails are sent.
 
 OpenAI Phase 3: [private server setup, monthly budget and first real classification](docs/OPENAI_SETUP.md). Configure securely with `npm run env:openai`; MOCK remains available and real email sending stays disabled.
+
+Phase 3 commercial context, safe sending preparation and Mac verification: [Commercial hardening](docs/PHASE_3_COMMERCIAL_HARDENING.md).
