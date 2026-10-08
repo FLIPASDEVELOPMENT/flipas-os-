@@ -151,3 +151,37 @@ export async function complete(f: FormData) {
     service.completeFollowUp(u, field(f, "id")),
   );
 }
+
+export async function connectZoho() {
+  const u = await requireOwner();
+  const { cookies } = await import("next/headers");
+  const { randomBytes } = await import("node:crypto");
+  const { createOAuthState } = await import("./server/oauth-state");
+  const { authorizeUrl, callbackUri } = await import("./providers/zoho");
+  let url = "";
+  try {
+    const binding = randomBytes(32).toString("hex");
+    const state = await createOAuthState(u,binding);
+    const { digest } = await import("./domain/security");
+    const s = await db.mailOAuthState.findUniqueOrThrow({where:{stateHash:digest(state)}});
+    (await cookies()).set("flipas_zoho_binding",binding,{httpOnly:true,sameSite:"lax",secure:callbackUri().startsWith("https:"),path:"/",maxAge:600});
+    url = authorizeUrl(s.region,s.clientId,s.redirectUri,state);
+  } catch { redirect("/owner/ai?error=AUTH_REQUIRED"); }
+  redirect(url);
+}
+export async function selectMailbox(f: FormData) {
+  const u=await requireOwner();
+  const { selectZohoMailbox }=await import("./server/zoho");
+  await action("/owner/ai",()=>selectZohoMailbox(u,field(f,"grant"),field(f,"accountId"),field(f,"folderId"),f.has("consent")));
+}
+export async function retryRevocation(f: FormData) {
+  const u=await requireOwner();
+  await action("/owner/ai",async()=>{
+    await db.$transaction(async tx=>{
+      const job=await tx.salesJob.findUniqueOrThrow({where:{id:field(f,"id")}});
+      if(!["REVOKE","REVOKE_GRANT"].includes(job.type) || job.status!=="FAILED") throw new Error("ACCESS_DENIED");
+      await tx.salesJob.updateMany({where:{id:job.id,status:"FAILED"},data:{status:"PENDING",attempts:0,runAt:new Date(),errorCode:null,lockedUntil:null}});
+      await service.audit(tx,u.id,"MAIL_REVOCATION_RETRIED",{jobId:job.id});
+    });
+  });
+}

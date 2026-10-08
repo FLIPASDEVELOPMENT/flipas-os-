@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { db } from "@/server/db";
 import { User } from "@/generated/prisma/client";
 import { assertOwner } from "@/owner/service";
+import { callbackUri } from "../providers/zoho";
 import { digest, encryptSecret } from "../domain/security";
 /** Provider-independent state security. No Zoho endpoint or scope is assumed. */
 export async function createOAuthState(u: User, browserBinding: string) {
@@ -15,6 +16,7 @@ export async function createOAuthState(u: User, browserBinding: string) {
   const state = randomBytes(32).toString("hex");
   await db.mailOAuthState.create({
     data: {
+      redirectUri: callbackUri(),
       stateHash: digest(state),
       bindingHash: digest(browserBinding),
       userId: u.id,

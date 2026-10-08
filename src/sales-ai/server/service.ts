@@ -1,3 +1,4 @@
+import { zohoProvider } from "./zoho";
 import { estimatedUsageCost } from "../domain/usage";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
@@ -157,12 +158,8 @@ export const configInput = z.object({
 export async function configureAI(u: User, input: unknown) {
   assertOwner(u);
   const d = configInput.parse(input);
-  if (d.liveAuthorized)
-    throw new Error(
-      "Live mail remains locked until official API verification and explicit owner activation",
-    );
-  if (d.mailProvider === "ZOHO")
-    throw new Error("Zoho connector not enabled yet");
+  if (d.liveAuthorized) throw new Error("LIVE_DISABLED");
+  if (d.mailProvider === "ZOHO" && !["US", "EU"].includes(d.oauthRegion)) throw new Error("REGION_UNSUPPORTED");
   if (
     d.aiProvider === "OPENAI" &&
     (!d.model.trim() ||
@@ -212,7 +209,7 @@ export async function configureAI(u: User, input: unknown) {
 }
 export async function syncMailbox(
   id: string,
-  provider: MailProvider = new MockMailProvider(),
+  provider?: MailProvider,
   signal?: AbortSignal,
 ) {
   const connection = await db.mailConnection.findUniqueOrThrow({
@@ -222,7 +219,9 @@ export async function syncMailbox(
   if (!settings.processingEnabled) throw new Error("PROCESSING_DISABLED");
   if (!connection.connected || !connection.consented || !connection.folderId)
     throw new Error("AUTH_REQUIRED");
-  if (connection.provider !== "MOCK") throw new Error("LIVE_DISABLED");
+  if (connection.provider === "ZOHO" && settings.mailProvider !== "ZOHO") throw new Error("PROCESSING_DISABLED");
+  if (!["MOCK", "ZOHO"].includes(connection.provider)) throw new Error("LIVE_DISABLED");
+  provider ??= connection.provider === "ZOHO" ? await zohoProvider(id) : new MockMailProvider();
   signal?.throwIfAborted();
   const page = await provider.listMessages(id, connection.syncCursor, signal);
   signal?.throwIfAborted();
@@ -234,6 +233,13 @@ export async function syncMailbox(
     throw new Error("PROVIDER_REJECTED");
   await db.$transaction(
     async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "MailConnection" WHERE "id"=${id} FOR UPDATE`;
+      const current = await tx.mailConnection.findUniqueOrThrow({where:{id}});
+      const activeSettings = await tx.salesAISettings.findUniqueOrThrow({where:{id:"company"}});
+      if(!current.connected || !current.consented || current.folderId!==connection.folderId || current.syncCursor!==connection.syncCursor)
+        throw new Error("AUTH_REQUIRED");
+      if(!activeSettings.processingEnabled || (current.provider==="ZOHO" && activeSettings.mailProvider!=="ZOHO"))
+        throw new Error("PROCESSING_DISABLED");
       for (const raw of page.messages) {
         signal?.throwIfAborted();
         const m = mailMessage.parse(raw);
@@ -973,16 +979,12 @@ export async function disconnectMailbox(u: User, id: string) {
   assertOwner(u);
   await db.$transaction(async (tx) => {
     const c = await tx.mailConnection.findUniqueOrThrow({ where: { id } });
-    if (c.provider !== "MOCK") throw new Error("LIVE_DISABLED");
     await tx.mailConnection.update({
       where: { id },
-      data: {
-        connected: false,
-        tokenCipher: null,
-        oauthSecretCipher: null,
-        tokenExpiresAt: null,
-      },
+      data: { connected: false, consented: false,
+        ...(c.provider === "ZOHO" ? {lastError:"REVOCATION_PENDING"} : {tokenCipher:null,oauthSecretCipher:null,tokenExpiresAt:null}) },
     });
+    if(c.provider === "ZOHO" && c.tokenCipher) await enqueue("REVOKE", `revoke:${id}:${randomUUID()}`, {connectionId:id}, new Date(), tx);
     await audit(tx, u.id, "MAIL_DISCONNECTED", { connectionId: id });
   });
 }

@@ -11,4 +11,4 @@ OWNER Console extends Phase 2 with live executive reporting, OWNER-only versione
 
 ## Phase 3 progress
 
-Internal AI Sales mock checkpoint built; official Zoho documentation access and subsequent Zoho connector work and authorized live-provider verification remain outstanding. Not merged into main or deployed.
+AI Sales and the OWNER-authorized, read-only US/EU Zoho connector are implemented. Official Mail/OAuth contracts were verified; authenticated OWNER-side provider verification remains outstanding. Real email sending remains disabled. Not merged into main or deployed.

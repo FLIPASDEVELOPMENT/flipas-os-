@@ -627,7 +627,15 @@ model SalesJob {
  completedAt DateTime?
  @@index([status,runAt])
 }
+model MailOAuthGrant {
+  id String @id @default(cuid())
+  ownerId String
+  grantCipher String
+  expiresAt DateTime
+}
+
 model MailOAuthState {
+ redirectUri String @default("")
  id String @id @default(cuid())
  stateHash String @unique
  bindingHash String

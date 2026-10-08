@@ -1,6 +1,6 @@
 # Phase 3 — AI Sales internal checkpoint
 
-Status: internal development/mock workflow implemented. **Zoho Mail is NOT implemented or operational yet.** The OpenAI Responses adapter is implemented and tested with simulated HTTP responses; no live model call was authorized or run. Official Zoho documentation access is blocked by the Codex network proxy (HTTP 403). This checkpoint contains no invented Zoho API endpoints or OAuth scopes. No live email synchronization or delivery is authorized or enabled. MOCK remains the default AI provider. It branches from Phase 2 `65c999e` on `feature/phase-3-ai-sales`; no main merge or production deployment.
+Status: AI Sales and the read-only Zoho Mail connector are implemented on `feature/phase-3-ai-sales`. Official Zoho Mail/OAuth documentation is now accessible and was verified on 2026-10-08. OAuth, refresh, selected-folder import and revocation are tested with simulated HTTP and PostgreSQL; no real account was authenticated. **Real email sending remains disabled in all backend layers.** MOCK remains the default provider, and actual reading requires explicit OWNER configuration/consent. No main merge or production deployment. See [Zoho Mail setup and official contracts](ZOHO_MAIL.md).
 
 ## What you can inspect
 
@@ -8,7 +8,7 @@ Status: internal development/mock workflow implemented. **Zoho Mail is NOT imple
 - `/ai/inbox`: assigned inbox for SALES, searchable subjects/senders, category and unread/unprocessed filters. Latest 100 results.
 - `/ai/inbox/[id]`: plain-text message history, sender, structured extraction with confidence and exact evidence references, missing project details, recommended qualifying questions/template, human classification, CRM links, representative assignment by OWNER, follow-ups and English/Spanish reply drafts.
 - `/ai/follow-ups`: actual assigned due/overdue tasks and completed history. Open a conversation to draft a follow-up; no reminder sends mail.
-- `/owner/ai`: OWNER-only processing toggle, emergency outbound pause, role configuration, mock initialization, mailbox health, recorded usage, jobs, send attempts and audited changes. Zoho selection is disabled. OpenAI requires an OWNER-entered encrypted key and model.
+- `/owner/ai`: OWNER-only processing toggle, emergency outbound pause, role configuration, mock initialization, mailbox health, recorded usage, jobs, send attempts and audited changes. Zoho is available for explicitly authorized read-only access in US/EU. OpenAI requires an OWNER-entered encrypted key and model.
 - Customer records show linked conversations, filtered by the user's mail assignments.
 
 Mock mail imports two synthetic `example.invalid` messages clearly labeled DEVELOPMENT ONLY: a kitchen inquiry and a newsletter. The mock AI uses deterministic heuristics and neutral canned replies, not a language model. Its confidence is explicitly a development indicator. Unknown names, phone, location and timeline stay null. Only explicit budget text is extracted. No attachments are downloaded, rendered or executed.
@@ -55,11 +55,11 @@ SYNC, ANALYZE, SEND, REMIND and RETENTION jobs live in PostgreSQL. Polling inser
 
 - Existing Phase 1 sessions/RBAC and Next server-action origin checks protect mutations. OWNER-only settings; OWNER/ADMIN CRM roles can inspect mail, SALES only assigned conversations; other roles denied. OWNER can grant approval/sending to ADMIN/SALES without expanding SALES record scope.
 - Integration secrets and token sets use randomized AES-256-GCM with a server-only 32-byte hex `MAIL_ENCRYPTION_KEY`. There is no default key and no secret values returned to browsers, audit records or logs. `npm run env:mail` securely appends a random key to your existing ignored `.env`; it preserves an existing key. Securely back it up and never commit or paste it. Losing/changing it requires reconnecting integrations. Mock-only mode needs no key.
-- Provider-independent OAuth state helpers bind owner/browser, hash state, expire after ten minutes and consume once. They are tested foundations, not a Zoho connection flow. Provider-independent token lifecycle tests cover authenticated storage, serialized refresh, rotation and redacted failures; no real token exchange occurs.
+- Provider-independent OAuth state helpers bind owner/browser, hash state, expire after ten minutes and consume once. The connector uses them for its actual OWNER-only OAuth start/callback and account/folder selection flow. Provider-independent token lifecycle tests cover authenticated storage, serialized refresh, rotation and redacted failures; real exchange remains unrun; the adapter contract is exercised with simulated responses.
 - Model abstraction receives only the inquiry and can never call CRM/financial/send tools. Mock output ignores prompt injection. Structured facts require exact message evidence; outgoing approval blocks price/discount/contractual/sensitive terms. **This is not a claim that live-model prompt injection defenses have been validated.** Live-model use is disabled by default; OWNER must explicitly configure a key/model and select OpenAI before calls can occur.
 - Email HTML is displayed as escaped plain text; bodies limited to 30 KB; bounded metadata accepts PDF/images/TXT <=5 MiB. Attachments are never fetched.
 - Retention setting removes old inbox bodies/attachment metadata and stale extracted intelligence. Exact draft versions and audited communications remain retained for human review. This is **not** complete erasure of all customer PII. An audited/legal retention policy for drafts, addresses and history remains a live-rollout requirement.
-- Provider error text is replaced by allowlisted codes. No external mailbox can be selected/connected/synced/sent yet. UI usage counts describe actual mock operations; model costs are estimated only when OWNER supplies both token rates; unknown costs are unavailable, not invented.
+- Provider error text is replaced by allowlisted codes. Only explicitly authorized US/EU Zoho mailboxes/folders can be connected and synchronized. Real sending remains blocked. UI usage counts describe actual mock operations; model costs are estimated only when OWNER supplies both token rates; unknown costs are unavailable, not invented.
 - No paid provider calls or customer communications occurred during development. No Zoho password is needed or requested.
 
 ## Docker
@@ -73,16 +73,9 @@ docker compose run --rm migrate
 docker compose up -d app sales-worker
 ```
 
-## Required next step for real Zoho/AI
+## OWNER setup for read-only Zoho
 
-1. In Codex environment settings, save/publish the additive network draft permitting `www.zoho.com`, `www.zoho.eu`, `developers.openai.com` and `platform.openai.com` while retaining existing package/Prisma destinations. That permits documentation research, **not mailbox authorization or deployment**.
-2. Resume connector implementation: verify official authorization/token/revocation URLs, regional account/API mapping, exact least-privilege Mail scopes, message/thread/send APIs, folder selection, pagination and limits. Record official documentation links, verification date, response contracts and all region restrictions. No endpoints/scopes are provided here because verification is blocked.
-3. Implement OWNER-only OAuth start/callback/disconnect and explicitly selected commercial mailbox/folder. Integrate the tested state/token foundation, encrypted credentials, bounded HTTP requests, rate-limit handling and consent gates. The OpenAI adapter already implements structured outputs, bounded responses, timeouts, no tools, store:false, minimal/redacted input, key/model configuration, usage accounting and adversarial simulated-response tests. It still needs an OWNER-authorized live test.
-4. Register a Zoho server-based OAuth client using the **actual** callback URL implemented in step 3 and the verified scopes/region. Enter its client ID/secret securely in OWNER Administration only after encryption is configured. Do not send these values in chat. The user's Zoho password is never stored by FLIPAS.
-5. Obtain explicit OWNER authorization for the designated commercial mailbox. Test authentication, refresh, folder selection, small bounded sync and one human-approved test reply to an OWNER-controlled mailbox. Keep outbound pause enabled until the OWNER explicitly authorizes that test. Never import personal mail implicitly.
-6. Re-run security/regression/live tests and report actual results before enabling ongoing sync or delivery. Do not mark Zoho operational without successful authenticated live verification.
-
-These are the safe activation prerequisites, not executable instructions for a finished connector. Zoho integration is an outstanding, externally blocked part of Phase 3. Live model verification also remains unrun.
+Follow [ZOHO_MAIL.md](ZOHO_MAIL.md) for official endpoint/scope evidence, exact callback registration and private configuration requirements. Migration `202610080002_zoho_readonly` adds encrypted, short-lived `MailOAuthGrant` staging and stores the callback URI in OAuth state. REVOKE/REVOKE_GRANT jobs handle disconnected/unfinished authorization; failed revocations have OWNER retry controls. Real sending cannot be enabled with settings or approval. No external credentials are requested in chat.
 
 ## OpenAI adapter configuration (optional, owner-authorized only)
 

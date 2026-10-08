@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { db } from "../src/server/db";
+import { encryptSecret } from "../src/sales-ai/domain/security";
 import { tokenHash } from "../src/server/auth";
 import {
   initializeMock,
@@ -74,6 +75,11 @@ async function main() {
       );
       if (u.role !== "OWNER")
         assert.ok(!(await r.text()).includes("Sending activity"));
+      const setup = await fetch(base + "/owner/ai/zoho", {headers,redirect:"manual"});
+      assert.equal(setup.status,u.role==="OWNER"?200:404,u.role+" Zoho setup");
+      const callback=await fetch(base+"/api/owner/zoho/callback?state=invalid",{headers,redirect:"manual"});
+      assert.equal(callback.status,u.role==="OWNER"?303:403,u.role+" Zoho callback");
+      if(u.role==="OWNER") assert.equal(callback.headers.get("location"),"/owner/ai?error=AUTH_REQUIRED");
       const c = await fetch(base + "/ai/inbox/" + thread.id, {
         headers,
         redirect: "manual",
@@ -84,11 +90,38 @@ async function main() {
         u.role + " scoped thread",
       );
     }
-    for (const path of ["/ai", "/ai/inbox", "/ai/follow-ups", "/owner/ai"]) {
+    for (const path of ["/ai", "/ai/inbox", "/ai/follow-ups", "/owner/ai", "/owner/ai/zoho"]) {
       const r = await fetch(base + path, { redirect: "manual" });
       assert.equal(r.status, 307);
       assert.equal(r.headers.get("location"), "/login");
     }
+    assert.equal((await fetch(base+"/api/owner/zoho/callback",{redirect:"manual"})).status,403);
+    await db.salesAISettings.update({where:{id:"company"},data:{oauthClientId:"test-oauth-client",oauthRegion:"US",oauthSecretCipher:encryptSecret("synthetic-test-secret")}});
+    const ownerPage=await fetch(base+"/owner/ai",{headers:owner.headers});
+    const ownerHtml=await ownerPage.text();
+    assert.ok(!ownerHtml.includes("synthetic-test-secret"));
+    const connectForm=[...ownerHtml.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/g)].map(m=>m[0]).find(f=>f.includes("Authorize read-only Zoho access"));
+    assert.ok(connectForm);
+    const connectAction=connectForm.match(/name="(\$ACTION_ID_[^"]+)"/);assert.ok(connectAction);
+    const connectData=new FormData();connectData.set(connectAction[1],"");
+    const stateCount=await db.mailOAuthState.count();
+    const blocked=await fetch(base+"/owner/ai",{method:"POST",headers:{...owner.headers,Origin:"https://untrusted.example.invalid"},body:connectData,redirect:"manual"});
+    assert.ok(blocked.status>=400);assert.equal(await db.mailOAuthState.count(),stateCount);
+    const denied=await fetch(base+"/owner/ai",{method:"POST",headers:{...sales.headers,Origin:base},body:connectData,redirect:"manual"});
+    assert.ok(denied.status>=400);assert.equal(await db.mailOAuthState.count(),stateCount);
+    const start=await fetch(base+"/owner/ai",{method:"POST",headers:{...owner.headers,Origin:base},body:connectData,redirect:"manual"});
+    assert.equal(start.status,303);
+    const authorization=new URL(start.headers.get("location")!);assert.equal(authorization.origin,"https://accounts.zoho.com");
+    assert.ok(!authorization.searchParams.get("scope")!.includes("CREATE"));
+    assert.equal(authorization.searchParams.get("redirect_uri"),base+"/api/owner/zoho/callback");
+    const bindingCookie=start.headers.get("set-cookie")!;assert.ok(/httponly/i.test(bindingCookie));assert.ok(/samesite=lax/i.test(bindingCookie));
+    const binding=bindingCookie.match(/flipas_zoho_binding=([^;]+)/)![1];
+    // Region mismatch consumes state but must reject before exchanging the synthetic code.
+    const query=new URLSearchParams({state:authorization.searchParams.get("state")!,code:"synthetic-code",location:"eu","accounts-server":"https://attacker.example.invalid"});
+    const failed=await fetch(base+"/api/owner/zoho/callback?"+query,{headers:{Cookie:owner.headers.Cookie+"; flipas_zoho_binding="+binding},redirect:"manual"});
+    assert.equal(failed.status,303);assert.equal(failed.headers.get("location"),"/owner/ai?error=AUTH_REQUIRED");assert.equal(failed.headers.get("cache-control"),"no-store");
+    const consumed=await db.mailOAuthState.findFirstOrThrow({where:{userId:owner.u.id},orderBy:{expiresAt:"desc"}});assert.ok(consumed.usedAt);
+    assert.equal(await db.mailOAuthGrant.count(),0);
     const page = await fetch(base + "/ai/inbox/" + thread.id, {
       headers: sales.headers,
     });

@@ -1,3 +1,4 @@
+import { revokeZohoConnection, revokePendingGrant } from "./zoho";
 import { randomUUID } from "node:crypto";
 import { db } from "@/server/db";
 import { Prisma, SalesJob } from "@/generated/prisma/client";
@@ -15,11 +16,15 @@ export async function scheduleJobs(now = new Date()) {
     where: { id: "company" },
   });
   if (!settings) return;
+  const expiredGrants = await db.mailOAuthGrant.findMany({where:{expiresAt:{lt:now}},select:{id:true}});
+  for(const g of expiredGrants) await enqueue("REVOKE_GRANT", `revoke-grant:${g.id}`, {grantId:g.id});
+  await db.mailOAuthState.deleteMany({where:{expiresAt:{lt:now}}});
   if (settings.processingEnabled) {
     const connections = await db.mailConnection.findMany({
       where: { connected: true, consented: true, folderId: { not: null } },
     });
     for (const c of connections) {
+      if(c.provider === "ZOHO" && settings.mailProvider !== "ZOHO") continue;
       const slot = Math.floor(now.getTime() / (settings.pollMinutes * 60000));
       await enqueue("SYNC", `sync:${c.id}:${slot}`, { connectionId: c.id });
     }
@@ -88,6 +93,12 @@ export async function runJob(job: SalesJob) {
   try {
     await withDeadline(async (signal) => {
       switch (job.type) {
+        case "REVOKE_GRANT":
+          await revokePendingGrant(String(p.grantId));
+          break;
+        case "REVOKE":
+          await revokeZohoConnection(String(p.connectionId));
+          break;
         case "SYNC":
           await syncMailbox(String(p.connectionId), undefined, signal);
           break;

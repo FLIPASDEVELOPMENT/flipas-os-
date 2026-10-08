@@ -167,4 +167,4 @@ TLS and npm package integrity remain enabled. The proxy CA is not copied into th
 
 ## AI Sales development checkpoint
 
-See [docs/AI_SALES.md](docs/AI_SALES.md) for `/ai`, the inbox, approval flow, PostgreSQL worker and mock startup. Run `npm run worker:ai` beside `npm run dev`. Real Zoho Mail remains unimplemented/disabled pending official API documentation verification; the OpenAI adapter is simulated-response-tested and remains off by default; no customer emails are sent.
+See [docs/AI_SALES.md](docs/AI_SALES.md) for `/ai`, the inbox, approval flow, PostgreSQL worker and mock startup. Run `npm run worker:ai` beside `npm run dev`. The Zoho Mail connector is implemented for OWNER-authorized read-only US/EU access; real email sending stays disabled. See [Zoho configuration](docs/ZOHO_MAIL.md); the OpenAI adapter is simulated-response-tested and remains off by default; no customer emails are sent.

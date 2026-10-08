@@ -1,6 +1,7 @@
+import { callbackUri, readScopes } from "@/sales-ai/providers/zoho";
 import { requireOwner } from "@/owner/auth";
 import { db } from "@/server/db";
-import { initialize, configuration, mailboxAction } from "@/sales-ai/actions";
+import { initialize, configuration, mailboxAction, connectZoho, retryRevocation } from "@/sales-ai/actions";
 import { DateTime, Mode, Notice } from "@/sales-ai/components";
 export default async function AIAdmin({
   searchParams,
@@ -76,7 +77,7 @@ export default async function AIAdmin({
       <h1>AI Administration</h1>
       <p className="muted">
         OWNER controls mail authorization, processing and sending permissions.
-        No live email has been authorized.
+        Real email sending is disabled. Zoho connection grants read-only access.
       </p>
       <Notice {...p} />
       <section className="panel">
@@ -115,8 +116,8 @@ export default async function AIAdmin({
               defaultValue={s?.mailProvider ?? "MOCK"}
             >
               <option value="MOCK">Mock (development only)</option>
-              <option value="ZOHO" disabled>
-                Zoho — awaiting verified connector
+              <option value="ZOHO">
+                Zoho Mail (read only)
               </option>
             </select>
           </label>
@@ -229,10 +230,9 @@ export default async function AIAdmin({
           </label>
           <div className="wide">
             <details>
-              <summary>Future Zoho OAuth configuration</summary>
+              <summary>Zoho OAuth configuration (read only)</summary>
               <p className="muted">
-                Connection remains disabled until official endpoints and scopes
-                can be verified. Never enter a Zoho account password.
+                Use a server-based application registered in your matching Zoho region. Never enter a Zoho account password. US and EU are supported; other regions remain locked pending Mail endpoint verification.
               </p>
               <div className="form">
                 <label>
@@ -241,7 +241,7 @@ export default async function AIAdmin({
                     name="oauthRegion"
                     defaultValue={s?.oauthRegion ?? "US"}
                   >
-                    {["US", "EU", "IN", "AU", "JP", "CA", "SA", "CN"].map(
+                    {["US", "EU"].map(
                       (v) => (
                         <option key={v}>{v}</option>
                       ),
@@ -272,6 +272,12 @@ export default async function AIAdmin({
         </form>
       </section>
       <section className="panel">
+        <h2>Connect Zoho Mail</h2>
+        <p>Save your private OAuth configuration above first. Register this exact redirect URI: <code>{callbackUri()}</code></p>
+        <p>Permissions: {readScopes.join(", ")}. Sending, deleting and marking messages are not authorized.</p>
+        <form action={connectZoho}><button>Authorize read-only Zoho access</button></form>
+      </section>
+      <section className="panel">
         <h2>Integration health</h2>
         {connections.map((c) => (
           <div className="row" key={c.id}>
@@ -292,6 +298,7 @@ export default async function AIAdmin({
             </div>
             <form action={mailboxAction} className="button-row">
               <input type="hidden" name="id" value={c.id} />
+              {!c.connected && c.lastError === "REVOCATION_PENDING" && <button name="operation" value="disconnect">Retry Zoho revocation</button>}
               {c.connected && (
                 <>
                   <button name="operation" value="sync">
@@ -345,7 +352,7 @@ export default async function AIAdmin({
                 <td>{j.type}</td>
                 <td>{j.status}</td>
                 <td>{j.attempts}</td>
-                <td>{j.errorCode ?? "—"}</td>
+                <td>{j.errorCode ?? "—"}{j.status === "FAILED" && ["REVOKE", "REVOKE_GRANT"].includes(j.type) && <form action={retryRevocation}><input type="hidden" name="id" value={j.id}/><button>Retry revocation</button></form>}</td>
                 <td>
                   <DateTime date={j.updatedAt} />
                 </td>
