@@ -4,7 +4,7 @@ import { User } from "@/generated/prisma/client";
 import { assertOwner } from "@/owner/service";
 import { callbackUri } from "../providers/zoho";
 import { digest, encryptSecret } from "../domain/security";
-/** Provider-independent state security. No Zoho endpoint or scope is assumed. */
+/** Single-use OWNER/browser-bound state with immutable client, region and callback snapshots. */
 export async function createOAuthState(u: User, browserBinding: string) {
   assertOwner(u);
   if (browserBinding.length < 32) throw new Error("ACCESS_DENIED");

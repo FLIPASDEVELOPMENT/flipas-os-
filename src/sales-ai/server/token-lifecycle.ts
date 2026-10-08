@@ -10,7 +10,7 @@ export type Tokens = z.infer<typeof tokenSet>;
 export interface TokenRefresher {
   refresh(connectionId: string, tokens: Tokens): Promise<Tokens>;
 }
-/** Deliberately provider-independent until official Zoho grant/refresh APIs are verified. */
+/** Serialized encrypted token refresh; the verified provider adapter supplies the renewal operation. */
 export async function accessToken(
   connectionId: string,
   refresher: TokenRefresher,
