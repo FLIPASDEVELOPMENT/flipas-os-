@@ -372,6 +372,13 @@ test("Zoho sending OAuth lifecycle, security, exact approval and single-use tran
           metadata: { path: ["draftId"], equals: d.id },
         },
       });
+      const sentMetadata = audit.metadata as { version: number; approvedById: string; recipient: string };
+      assert.equal(sentMetadata.version, 1);
+      assert.equal(sentMetadata.approvedById, owner.id);
+      assert.equal(sentMetadata.recipient, c.address);
+      const approval = await db.activity.findFirstOrThrow({ where: { type: "EMAIL_DRAFT_APPROVE", metadata: { path: ["draftId"], equals: d.id } } });
+      assert.equal(approval.actorId, owner.id);
+      assert.equal((approval.metadata as { version: number }).version, 1);
       const text = JSON.stringify(audit.metadata);
       assert.ok(
         text.includes(owner.id) &&
@@ -383,6 +390,28 @@ test("Zoho sending OAuth lifecycle, security, exact approval and single-use tran
       );
     },
   );
+  await t.test("synced self-addressed reply cannot enqueue automatic sends or repeat a consumed self-test", async () => {
+    const settings = await db.salesAISettings.findUniqueOrThrow({ where: { id: "company" } });
+    const sendJobs = await db.salesJob.count({ where: { type: "SEND" } });
+    const attempts = await db.mailSendAttempt.count();
+    await db.mailConnection.update({ where: { id: c.id }, data: { folderId: "self-test-inbox" } });
+    await db.salesAISettings.update({ where: { id: "company" }, data: { mailProvider: "ZOHO" } });
+    let sends = 0;
+    const loopProvider = {
+      listMessages: async () => ({ messages: [{ messageId: "self-reply-1001", threadId: "789", fromEmail: c.address, fromName: "Owner", toEmail: c.address, subject: "Re: Self test", body: "Approved self-test reply", receivedAt: new Date(), attachments: [] }], nextCursor: null }),
+      send: async () => { sends++; throw new Error("Unexpected automatic send"); },
+      disconnect: async () => {},
+    };
+    await service.syncMailbox(c.id, loopProvider);
+    await service.syncMailbox(c.id, loopProvider);
+    assert.equal(sends, 0);
+    assert.equal(await db.salesJob.count({ where: { type: "SEND" } }), sendJobs);
+    assert.equal(await db.mailSendAttempt.count(), attempts);
+    assert.equal(await db.mailMessage.count({ where: { providerMessageId: "self-reply-1001" } }), 1);
+    const repeated = await draft();
+    await assert.rejects(service.requestSend(owner, repeated.id, 1), /TEST_ALREADY_ATTEMPTED/);
+    await db.salesAISettings.update({ where: { id: "company" }, data: { mailProvider: settings.mailProvider } });
+  });
   await t.test(
     "wrong account OAuth is cleaned up and READ state cannot install sending grant",
     async () => {
