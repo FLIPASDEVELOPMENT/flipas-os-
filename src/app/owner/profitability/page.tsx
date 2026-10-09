@@ -9,7 +9,7 @@ export default async function Profitability() {
       <p className="muted">
         Contract and estimated costs come from accepted estimates. Recorded
         actual cost is not final; actual margin is unavailable until a job-cost
-        completion workflow exists.
+        completion and OWNER reconciliation have been recorded.
       </p>
       {!s.projects.length && (
         <section className="panel">
@@ -19,6 +19,17 @@ export default async function Profitability() {
       )}
       {s.projects.map((p) => {
         const overhead = p.estimate?.allocatedOverhead.toString() ?? "0";
+        const actual = p.operationsProjectCostEntry
+          .filter((c) => c.kind === "ACTUAL")
+          .reduce(
+            (sum, c) => sum.plus(c.amount.toString()),
+            new Decimal(p.actualCost.toString()),
+          );
+        const delta = p.operationsProjectChangeOrder.reduce(
+          (sum, c) => sum.plus(c.priceDelta.toString()),
+          new Decimal(0),
+        );
+        const reconciled = p.status === "COMPLETED" && !!p.costsReviewedAt;
         const gross = new Decimal(p.contractValue.toString()).minus(
           p.estimatedCost.toString(),
         );
@@ -39,7 +50,13 @@ export default async function Profitability() {
                   "Estimated profit after overhead",
                   gross.minus(overhead).toFixed(2),
                 ],
-                ["Recorded actual cost (not final)", p.actualCost.toString()],
+                ["Applied change order revenue", delta.toFixed(2)],
+                [
+                  reconciled
+                    ? "Reconciled actual cost"
+                    : "Recorded actual cost (provisional)",
+                  actual.toFixed(2),
+                ],
               ].map(([label, value]) => (
                 <div key={label}>
                   <span className="muted">{label}</span>
@@ -47,6 +64,11 @@ export default async function Profitability() {
                 </div>
               ))}
             </div>
+            <p>
+              {reconciled
+                ? `Reconciled recorded project contribution: $${new Decimal(p.contractValue.toString()).plus(delta).minus(actual).toFixed(2)}. Company net profit is not determined by this figure.`
+                : "Actual profitability unavailable: complete and reconcile all project costs first."}
+            </p>
             <p>
               Estimated gross margin:{" "}
               {p.contractValue.isZero()

@@ -174,3 +174,5 @@ OpenAI Phase 3: [private server setup, monthly budget and first real classificat
 Phase 3 commercial context, safe sending preparation and Mac verification: [Commercial hardening](docs/PHASE_3_COMMERCIAL_HARDENING.md).
 
 Zoho sending OAuth, safety controls and the paused OWNER self-test procedure: [ZOHO_DELIVERY.md](docs/ZOHO_DELIVERY.md).
+
+Phase 4 project/field operations are documented in [PHASE_4_OPERATIONS.md](docs/PHASE_4_OPERATIONS.md), including safe Mac updates, project permissions, evidence quotas/backups and disposable integration tests.

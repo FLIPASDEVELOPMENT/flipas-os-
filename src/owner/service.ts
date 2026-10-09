@@ -64,6 +64,8 @@ export async function ownerSummary(user: User) {
       db.project.findMany({
         include: {
           customer: true,
+          operationsProjectCostEntry: true,
+          operationsProjectChangeOrder: { where: { status: "APPLIED" } },
           estimate: {
             select: {
               number: true,

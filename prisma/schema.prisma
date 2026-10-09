@@ -47,6 +47,9 @@ enum Stage {
  LOST
 }
 enum ProjectStatus {
+ QUALITY_REVIEW
+ ON_HOLD
+ PLANNING
  PRE_CONSTRUCTION
  MATERIAL_ORDERING
  SCHEDULED
@@ -319,6 +322,27 @@ model EstimateLineItem {
  overriddenBy User? @relation(fields: [overriddenById], references: [id])
 }
 model Project {
+ operationsVersion Int @default(0)
+ originalScopeSnapshot Json @default("{}")
+ projectAddress String @default("")
+ costsReviewedAt DateTime?
+ costsReviewedById String?
+ templateVersionSnapshot Json @default("{}")
+ operationsProjectMember ProjectMember[]
+ operationsProjectStage ProjectStage[]
+ operationsProjectChecklist ProjectChecklist[]
+ operationsTaskDependency TaskDependency[]
+ operationsProjectTimeEntry ProjectTimeEntry[]
+ operationsProjectMaterial ProjectMaterial[]
+ operationsProjectPurchase ProjectPurchase[]
+ operationsProjectCostEntry ProjectCostEntry[]
+ operationsProjectDailyLog ProjectDailyLog[]
+ operationsProjectEvidence ProjectEvidence[]
+ operationsProjectChangeOrder ProjectChangeOrder[]
+ operationsProjectInspection ProjectInspection[]
+ operationsProjectDefect ProjectDefect[]
+ operationsProjectEvent ProjectEvent[]
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -342,6 +366,16 @@ model Project {
  tasks ProjectTask[]
 }
 model ProjectTask {
+ stageId String?
+ assigneeId String?
+ priority String @default("NORMAL")
+ status String @default("TODO")
+ progress Int @default(0)
+ plannedStart DateTime?
+ actualStart DateTime?
+ completionNote String @default("")
+ version Int @default(0)
+
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
@@ -706,4 +740,222 @@ model MailWriteConsent {
  testOnly Boolean @default(true)
  testAttemptAt DateTime?
  lastError String?
+}
+
+model ProjectMember {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ userId String
+ kind String @default("EMPLOYEE")
+ active Boolean @default(true)
+ @@unique([projectId,userId])
+}
+
+model ProjectStage {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ title String
+ position Int @default(0)
+ plannedStart DateTime?
+ plannedEnd DateTime?
+ actualStart DateTime?
+ actualEnd DateTime?
+}
+
+model OperationsTemplate {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ name String
+ version Int @default(1)
+ definition Json
+ active Boolean @default(true)
+ @@unique([name,version])
+}
+
+model ProjectChecklist {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ taskId String?
+ title String
+ required Boolean @default(true)
+ completedAt DateTime?
+ completedById String?
+}
+
+model TaskDependency {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ taskId String
+ prerequisiteId String
+ @@unique([taskId,prerequisiteId])
+}
+
+model ProjectTimeEntry {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ workerId String
+ workDate DateTime
+ minutes Int
+ description String
+ createdById String
+ requestKey String
+ @@unique([projectId,requestKey])
+}
+
+model ProjectMaterial {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ name String
+ quantity Decimal @db.Decimal(14,4)
+ unit String
+ supplier String @default("")
+ status String @default("NEEDED")
+ receivedQuantity Decimal @default(0) @db.Decimal(14,4)
+}
+
+model ProjectPurchase {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ materialId String
+ status String @default("REQUESTED")
+ quantity Decimal @db.Decimal(14,4)
+ unitCost Decimal @db.Decimal(14,2)
+ approvedById String?
+ requestedById String
+ requestKey String
+ @@unique([projectId,requestKey])
+}
+
+model ProjectCostEntry {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ category String
+ kind String
+ amount Decimal @db.Decimal(14,2)
+ description String
+ sourceReference String
+ recordedById String
+ requestKey String
+ @@unique([projectId,requestKey])
+}
+
+model ProjectDailyLog {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ workDate DateTime
+ version Int @default(1)
+ summary String
+ incidents String @default("")
+ workers Json
+ recordedById String
+ replacesId String?
+ requestKey String
+ @@unique([projectId,requestKey])
+}
+
+model ProjectEvidence {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ fileName String
+ mimeType String
+ byteSize Int
+ sha256 String
+ data Bytes
+ uploadedById String
+ taskId String?
+ logId String?
+ inspectionId String?
+}
+
+model ProjectChangeOrder {
+ financialReviewed Boolean @default(false)
+ replacesId String? @unique
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ title String
+ reason String
+ version Int @default(1)
+ status String @default("DRAFT")
+ scope String
+ priceDelta Decimal @db.Decimal(14,2)
+ costDelta Decimal @db.Decimal(14,2)
+ scheduleDays Int @default(0)
+ createdById String
+ approvedById String?
+ approvedVersion Int?
+ approvedAt DateTime?
+ appliedAt DateTime?
+ requestKey String
+ @@unique([projectId,requestKey])
+}
+
+model ProjectInspection {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ title String
+ required Boolean @default(true)
+ status String @default("PENDING")
+ reviewedById String?
+ reviewedAt DateTime?
+ notes String @default("")
+}
+
+model ProjectDefect {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ title String
+ blocking Boolean @default(true)
+ resolvedAt DateTime?
+ resolvedById String?
+ resolution String @default("")
+}
+
+model ProjectEvent {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ project Project @relation(fields:[projectId],references:[id])
+ @@index([projectId,createdAt])
+ type String
+ actorId String
+ metadata Json
 }

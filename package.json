@@ -13,6 +13,9 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx prisma/seed.ts",
     "user:create": "tsx prisma/create-user.ts",
+    "test:operations:local": "node scripts/test-operations-local.mjs",
+    "test:operations:http": "tsx tests/operations.http.ts",
+    "test:operations": "tsx --test tests/operations.integration.ts",
     "test:integration": "tsx --test tests/crm.integration.ts",
     "test:smoke": "tsx tests/http.smoke.ts",
     "env:local": "node scripts/create-local-env.mjs",
@@ -39,6 +42,7 @@
     "pdf-lib": "^1.17.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "sharp": "0.35.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
