@@ -1,6 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import sharp from "sharp";
 import { db } from "../src/server/db";
 import {
@@ -803,4 +804,81 @@ test("OWNER-only financial visibility and real progress attribution survive temp
     before.project.templateVersionSnapshot,
   );
   assert.equal(after.tasks.length, before.tasks.length);
+});
+
+test("PostgreSQL transaction clients never overlap, including relation loads and rollback", async () => {
+  const x = await fixture();
+  const pg = createRequire(import.meta.url)("pg") as typeof import("pg");
+  const original = pg.Client.prototype.query;
+  const pending = new WeakMap<object, number>();
+  let overlaps = 0;
+  let calls = 0;
+  // Observe invocation/settlement only. Never record SQL, parameters or credentials.
+  const tracked = function (this: object, ...args: unknown[]) {
+    calls++;
+    const count = pending.get(this) ?? 0;
+    if (count > 0) overlaps++;
+    pending.set(this, count + 1);
+    let settled = false;
+    const done = () => {
+      if (!settled) pending.set(this, (pending.get(this) ?? 1) - 1);
+      settled = true;
+    };
+    const callback = args.at(-1);
+    if (typeof callback === "function") {
+      args[args.length - 1] = (...values: unknown[]) => {
+        done();
+        return Reflect.apply(callback, undefined, values);
+      };
+    }
+    try {
+      const result = Reflect.apply(original, this, args) as Promise<unknown>;
+      if (result && typeof result.then === "function")
+        void result.then(done, done);
+      return result;
+    } catch (error) {
+      done();
+      throw error;
+    }
+  };
+  pg.Client.prototype.query = tracked as typeof original;
+  try {
+    await workspace(x.owner, x.project.id);
+    await workspace(x.pm, x.project.id);
+    await workspace(x.crew, x.project.id);
+    await db.$transaction(async (tx) => {
+      await Promise.all([
+        tx.$queryRaw`SELECT pg_sleep(0.01)::text`,
+        tx.project.findUniqueOrThrow({
+          where: { id: x.project.id },
+          include: { customer: true, opportunity: true, estimate: true },
+        }),
+        tx.projectCostEntry.count({ where: { projectId: x.project.id } }),
+      ]);
+    });
+    const before = await db.project.findUniqueOrThrow({
+      where: { id: x.project.id },
+    });
+    await assert.rejects(
+      db.$transaction(async (tx) => {
+        await tx.project.update({
+          where: { id: x.project.id },
+          data: { projectAddress: "must roll back" },
+        });
+        await tx.$queryRaw`SELECT 1 / 0`;
+      }),
+    );
+    const afterRollback = await db.project.findUniqueOrThrow({
+      where: { id: x.project.id },
+    });
+    assert.equal(afterRollback.projectAddress, before.projectAddress);
+    assert.ok(calls > 20, "Must observe real PostgreSQL query execution");
+    assert.equal(
+      overlaps,
+      0,
+      "No client may receive a second query before its current query settles",
+    );
+  } finally {
+    pg.Client.prototype.query = original;
+  }
 });

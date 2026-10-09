@@ -36,7 +36,19 @@ export async function projectList(u: User) {
     take: 200,
   });
   const assignees = await db.user.findMany({
-    where: { id: { in: [...new Set(rows.flatMap((p) => p.tasks.map((t) => t.assigneeId).filter((id): id is string => !!id)))] } },
+    where: {
+      id: {
+        in: [
+          ...new Set(
+            rows.flatMap((p) =>
+              p.tasks
+                .map((t) => t.assigneeId)
+                .filter((id): id is string => !!id),
+            ),
+          ),
+        ],
+      },
+    },
     select: { id: true, name: true },
   });
   return rows.map((p) => ({
@@ -51,7 +63,10 @@ export async function projectList(u: User) {
           (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity),
       )
       .slice(0, 3)
-      .map((t) => ({ ...t, assigneeName: assignees.find((a) => a.id === t.assigneeId)?.name })),
+      .map((t) => ({
+        ...t,
+        assigneeName: assignees.find((a) => a.id === t.assigneeId)?.name,
+      })),
     state: canonicalState(p.status),
     delayed:
       overdue(p.estimatedCompletionDate, p.actualCompletionDate) &&
@@ -90,66 +105,59 @@ export async function workspace(u: User, projectId: string) {
         templateVersionSnapshot: true,
       },
     });
-    const [
-      stages,
-      tasks,
-      members,
-      checklists,
-      time,
-      logs,
-      materials,
-      inspections,
-      defects,
-      evidence,
-      events,
-    ] = await Promise.all([
-      tx.projectStage.findMany({
-        where: { projectId },
-        orderBy: { position: "asc" },
-      }),
-      tx.projectTask.findMany({
-        where: {
-          projectId,
-          ...(u.role === "CREW" ? { assigneeId: u.id } : {}),
-        },
-        orderBy: { dueAt: "asc" },
-        take: 300,
-      }),
-      tx.projectMember.findMany({ where: { projectId } }),
-      tx.projectChecklist.findMany({ where: { projectId } }),
-      tx.projectTimeEntry.findMany({
-        where: { projectId, ...(u.role === "CREW" ? { workerId: u.id } : {}) },
-        orderBy: { workDate: "desc" },
-        take: 100,
-      }),
-      tx.projectDailyLog.findMany({
-        where: { projectId },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
-      tx.projectMaterial.findMany({ where: { projectId } }),
-      tx.projectInspection.findMany({ where: { projectId } }),
-      tx.projectDefect.findMany({ where: { projectId } }),
-      tx.projectEvidence.findMany({
-        where: { projectId },
-        select: {
-          id: true,
-          fileName: true,
-          byteSize: true,
-          taskId: true,
-          logId: true,
-          inspectionId: true,
-          createdAt: true,
-        },
-        take: 200,
-      }),
-      tx.projectEvent.findMany({
-        where: { projectId },
-        select: { id: true, type: true, actorId: true, createdAt: true },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
-    ]);
+    // An interactive transaction owns one PostgreSQL client: await each query.
+    const stages = await tx.projectStage.findMany({
+      where: { projectId },
+      orderBy: { position: "asc" },
+    });
+    const tasks = await tx.projectTask.findMany({
+      where: {
+        projectId,
+        ...(u.role === "CREW" ? { assigneeId: u.id } : {}),
+      },
+      orderBy: { dueAt: "asc" },
+      take: 300,
+    });
+    const members = await tx.projectMember.findMany({ where: { projectId } });
+    const checklists = await tx.projectChecklist.findMany({
+      where: { projectId },
+    });
+    const time = await tx.projectTimeEntry.findMany({
+      where: { projectId, ...(u.role === "CREW" ? { workerId: u.id } : {}) },
+      orderBy: { workDate: "desc" },
+      take: 100,
+    });
+    const logs = await tx.projectDailyLog.findMany({
+      where: { projectId },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    const materials = await tx.projectMaterial.findMany({
+      where: { projectId },
+    });
+    const inspections = await tx.projectInspection.findMany({
+      where: { projectId },
+    });
+    const defects = await tx.projectDefect.findMany({ where: { projectId } });
+    const evidence = await tx.projectEvidence.findMany({
+      where: { projectId },
+      select: {
+        id: true,
+        fileName: true,
+        byteSize: true,
+        taskId: true,
+        logId: true,
+        inspectionId: true,
+        createdAt: true,
+      },
+      take: 200,
+    });
+    const events = await tx.projectEvent.findMany({
+      where: { projectId },
+      select: { id: true, type: true, actorId: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
     const dependencies = await tx.taskDependency.findMany({
       where: { projectId },
       select: { taskId: true, prerequisiteId: true },
@@ -265,17 +273,17 @@ export async function workspace(u: User, projectId: string) {
     });
     let financial = null;
     if (finance) {
-      const [costs, changes, purchases] = await Promise.all([
-        tx.projectCostEntry.findMany({
-          where: { projectId },
-          orderBy: { createdAt: "desc" },
-        }),
-        tx.projectChangeOrder.findMany({
-          where: { projectId },
-          orderBy: { createdAt: "desc" },
-        }),
-        tx.projectPurchase.findMany({ where: { projectId } }),
-      ]);
+      const costs = await tx.projectCostEntry.findMany({
+        where: { projectId },
+        orderBy: { createdAt: "desc" },
+      });
+      const changes = await tx.projectChangeOrder.findMany({
+        where: { projectId },
+        orderBy: { createdAt: "desc" },
+      });
+      const purchases = await tx.projectPurchase.findMany({
+        where: { projectId },
+      });
       const applied = changes.filter((c) => c.status === "APPLIED");
       const sum = (values: Prisma.Decimal[]) =>
         values.reduce((a, b) => a.add(b), new Prisma.Decimal(0));
