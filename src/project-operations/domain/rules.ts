@@ -47,7 +47,7 @@ export const day = z
   )
   .transform((v) => new Date(v + "T12:00:00Z"));
 export const managers = ["OWNER", "ADMIN", "PROJECT_MANAGER"];
-export const financialRoles = ["OWNER", "ADMIN"];
+export const financialRoles = ["OWNER"];
 export function overdue(
   due: Date | null,
   completed: Date | null,
@@ -71,68 +71,184 @@ export function assertAcyclic(
   };
   if (visit(prerequisiteId)) throw new Error("DEPENDENCY_CYCLE");
 }
+const stage = (title: string, tasks: Record<string, string[]>) => ({
+  title,
+  tasks: Object.keys(tasks),
+  checklists: tasks,
+});
 export const templates = [
   {
     name: "Kitchen Remodeling",
     stages: [
-      {
-        title: "Site preparation",
-        tasks: ["Protect occupied areas", "Confirm field measurements"],
-      },
-      {
-        title: "Installation",
-        tasks: [
-          "Install cabinets",
-          "Install countertops",
-          "Install backsplash and lighting",
+      stage("Preparation and protection", {
+        "Protect occupied areas": [
+          "Confirm access, isolation and dust protection",
+          "Photograph existing surfaces and appliance condition",
         ],
-      },
-      {
-        title: "Quality review",
-        tasks: ["Inspect finishes", "Review punch list"],
-      },
+        "Confirm field measurements": [
+          "Verify cabinet dimensions, openings and approved scope",
+          "Record conflicting site conditions before work",
+        ],
+      }),
+      stage("Pre-installation checks", {
+        "Verify materials and rough services": [
+          "Check delivery counts and visible damage",
+          "Verify approved cabinet layout and service clearances; escalate discrepancies",
+        ],
+      }),
+      stage("Installation", {
+        "Install cabinets": [
+          "Check level, alignment, anchorage and door operation",
+          "Photograph anchorage before concealment",
+        ],
+        "Install countertops": [
+          "Verify fit, seams and supports against approved specifications",
+          "Check finish and protect installed surfaces",
+        ],
+        "Install backsplash and lighting": [
+          "Check alignment, joints and approved lighting layout",
+          "Record electrical verification by authorized personnel",
+        ],
+      }),
+      stage("Inspection and punch list", {
+        "Inspect finishes": [
+          "Check doors, drawers, joints and surface defects",
+          "Record inspection photos",
+        ],
+        "Resolve punch list": [
+          "Record defects and blocking status",
+          "Verify repairs before requesting final inspection",
+        ],
+      }),
+      stage("Handover", {
+        "Document final handover": [
+          "Record final approved inspection and handover photos",
+          "Record care documentation and outstanding items; do not promise unconfigured warranties",
+        ],
+      }),
     ],
   },
   {
     name: "Bathroom Remodeling",
     stages: [
-      {
-        title: "Preparation",
-        tasks: ["Protect occupied areas", "Confirm plumbing scope"],
-      },
-      {
-        title: "Installation",
-        tasks: ["Inspect waterproofing", "Install fixtures and tile"],
-      },
-      {
-        title: "Quality review",
-        tasks: ["Check leaks and drainage", "Inspect finishes"],
-      },
+      stage("Preparation", {
+        "Protect occupied areas": [
+          "Confirm isolation, access and surface protection",
+          "Photograph existing conditions",
+        ],
+        "Confirm plumbing scope": [
+          "Verify approved fixture layout and dimensions",
+          "Escalate concealed conditions before scope changes",
+        ],
+      }),
+      stage("Pre-installation checks", {
+        "Verify substrate and materials": [
+          "Check substrate condition and delivered materials",
+          "Confirm approved waterproofing system and manufacturer requirements",
+        ],
+      }),
+      stage("Installation", {
+        "Inspect waterproofing": [
+          "Document membrane, corners and penetrations before concealment",
+          "Record required inspection/test result before covering",
+        ],
+        "Install fixtures and tile": [
+          "Check alignment, joints, drainage and fixture operation",
+          "Document authorized plumbing/electrical verification",
+        ],
+      }),
+      stage("Inspection and punch list", {
+        "Check leaks and drainage": [
+          "Document test conditions and results",
+          "Report defects and any unresolved blocking issue",
+        ],
+        "Inspect finishes": [
+          "Check sealants, edges and fixtures",
+          "Photograph finish defects and verified repairs",
+        ],
+      }),
+      stage("Handover", {
+        "Document final handover": [
+          "Record final inspection approval and handover evidence",
+          "Provide care documentation and list any outstanding items",
+        ],
+      }),
     ],
   },
   {
     name: "LVP Flooring",
     stages: [
-      {
-        title: "Preparation",
-        tasks: ["Measure floor areas", "Check substrate and moisture"],
-      },
-      {
-        title: "Installation",
-        tasks: ["Prepare substrate", "Install LVP and transitions"],
-      },
-      {
-        title: "Quality review",
-        tasks: ["Inspect floor and trims", "Review punch list"],
-      },
+      stage("Preparation", {
+        "Measure floor areas": [
+          "Verify dimensions, transitions and approved installation scope",
+          "Photograph existing floor and protect adjacent finishes",
+        ],
+        "Check substrate and moisture": [
+          "Record moisture/flatness checks against product requirements",
+          "Escalate unsuitable substrate before installation",
+        ],
+      }),
+      stage("Pre-installation checks", {
+        "Verify flooring materials": [
+          "Check product, batch, damage and quantities",
+          "Confirm manufacturer acclimation and expansion requirements",
+        ],
+      }),
+      stage("Installation", {
+        "Prepare substrate": [
+          "Document repairs and readiness before covering",
+          "Confirm cleanliness and approved underlay",
+        ],
+        "Install LVP and transitions": [
+          "Verify approved layout, joints and expansion gaps",
+          "Photograph transitions and perimeter details",
+        ],
+      }),
+      stage("Inspection and punch list", {
+        "Inspect floor and trims": [
+          "Check joints, edges, movement and trim finish",
+          "Record inspection photos",
+        ],
+        "Resolve punch list": [
+          "Record and resolve blocking defects",
+          "Verify repairs with evidence",
+        ],
+      }),
+      stage("Handover", {
+        "Document final handover": [
+          "Record approved final inspection and handover photos",
+          "Provide product care documentation without inventing warranties",
+        ],
+      }),
     ],
   },
 ];
 export const templateDefinition = z
   .object({
     stages: z
-      .array(z.object({ title: text, tasks: z.array(text).min(1).max(30) }))
+      .array(
+        z
+          .object({
+            title: text,
+            tasks: z.array(text).min(1).max(30),
+            checklists: z
+              .record(z.string(), z.array(text).min(1).max(15))
+              .optional(),
+          })
+          .strict()
+          .refine(
+            (s) =>
+              Object.keys(s.checklists ?? {}).every((key) =>
+                s.tasks.includes(key),
+              ),
+            "Checklist must reference an existing task",
+          ),
+      )
       .min(1)
       .max(20),
   })
-  .strict();
+  .strict()
+  .refine(
+    (d) => d.stages.reduce((n, s) => n + s.tasks.length, 0) <= 200,
+    "Template exceeds 200 tasks",
+  );

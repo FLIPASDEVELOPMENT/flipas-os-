@@ -1,3 +1,4 @@
+import { handoffDiagnostic } from "../domain/handoff";
 import { activePolicy } from "@/owner/service";
 import { parsePolicy, policyLine, projectOverhead } from "@/owner/policy";
 import Decimal from "decimal.js";
@@ -514,13 +515,44 @@ export function toDraft(e: FullEstimate): DraftInput {
     })),
   };
 }
-export async function copyEstimate(u: User, id: string, revision: boolean) {
+export async function copyEstimate(
+  u: User,
+  id: string,
+  revision: boolean,
+  selectedOpportunityId?: string,
+) {
   crm(u);
   await readEstimate(u, id);
   // Clone snapshots first, including custom costs; no catalog refresh during revisions.
   return db.$transaction(
     async (tx) => {
       const source = await getEstimate(tx, u, id);
+      if (selectedOpportunityId) {
+        const current = await tx.user.findUnique({
+          where: { id: u.id },
+          select: { active: true, role: true },
+        });
+        if (
+          !current?.active ||
+          current.role !== "OWNER" ||
+          revision ||
+          source.status !== "ACCEPTED"
+        )
+          throw new Error("OWNER accepted-estimate draft-copy required");
+        const selected = await tx.opportunity.findFirst({
+          where: {
+            id: selectedOpportunityId,
+            customerId: source.customerId,
+            stage: "WON",
+            project: null,
+          },
+          select: { id: true },
+        });
+        if (!selected)
+          throw new Error(
+            "Selected opportunity is not eligible: require exact same customer ID, WON and no existing project",
+          );
+      }
       if (source.status === "DRAFT" && revision)
         throw new Error("Save/submit this draft before revising");
       const latest = await tx.estimate.findFirst({
@@ -565,6 +597,9 @@ export async function copyEstimate(u: User, id: string, revision: boolean) {
       const clone = await tx.estimate.create({
         data: {
           ...fields,
+          ...(selectedOpportunityId
+            ? { opportunityId: selectedOpportunityId }
+            : {}),
           paymentSchedule: json(fields.paymentSchedule),
           customerSnapshot: json(fields.customerSnapshot),
           businessSnapshot: json(fields.businessSnapshot),
@@ -605,7 +640,12 @@ export async function copyEstimate(u: User, id: string, revision: boolean) {
         u,
         clone,
         revision ? "ESTIMATE_REVISION_CREATED" : "ESTIMATE_DUPLICATED",
-        { sourceId: id },
+        {
+          sourceId: id,
+          ...(selectedOpportunityId
+            ? { selectedOpportunityId, approvalRequired: true }
+            : {}),
+        },
       );
       return clone.id;
     },
@@ -766,15 +806,9 @@ export async function handoffProject(u: User, id: string) {
     return await db.$transaction(
       async (tx) => {
         const e = await getEstimate(tx, u, id);
-        if (
-          e.status !== "ACCEPTED" ||
-          !e.opportunity ||
-          e.opportunity.stage !== "WON" ||
-          e.opportunity.customerId !== e.customerId
-        )
-          throw new Error(
-            "Accepted estimate and matching WON opportunity required",
-          );
+        const diagnostic = handoffDiagnostic(e);
+        if (diagnostic.code !== "READY")
+          throw new Error(`${diagnostic.code}: ${diagnostic.message}`);
         const existing = await tx.project.findUnique({
           where: { opportunityId: e.opportunityId! },
         });

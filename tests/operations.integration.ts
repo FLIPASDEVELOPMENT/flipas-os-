@@ -685,3 +685,122 @@ test("shared CRM activity never contains restricted cost payloads", async () => 
   });
   assert.ok(JSON.stringify(event.metadata).includes("123.45"));
 });
+import { copyEstimate, handoffProject } from "../src/estimator/server/service";
+test("explicit OWNER linking creates an unapproved copy without mutating accepted source", async () => {
+  const x = await fixture();
+  for (const status of ["REVIEW", "APPROVED", "SENT", "ACCEPTED"])
+    await db.estimate.update({
+      where: { id: x.project.estimateId },
+      data: { status },
+    });
+  const source = await db.estimate.findUniqueOrThrow({
+    where: { id: x.project.estimateId },
+  });
+  const lead = await db.lead.create({
+    data: {
+      customerId: x.project.customerId,
+      source: "WEBSITE",
+      serviceType: "Kitchen",
+    },
+  });
+  const eligible = await db.opportunity.create({
+    data: {
+      leadId: lead.id,
+      customerId: x.project.customerId,
+      ownerId: x.owner.id,
+      stage: "WON",
+      estimatedValue: "30000",
+    },
+  });
+  await assert.rejects(copyEstimate(x.pm, source.id, false, eligible.id));
+  await assert.rejects(
+    copyEstimate(x.owner, source.id, false, x.project.opportunityId),
+    /not eligible/,
+  );
+  const other = await fixture();
+  await assert.rejects(
+    copyEstimate(x.owner, source.id, false, other.project.opportunityId),
+    /not eligible/,
+  );
+  const copyId = await copyEstimate(x.owner, source.id, false, eligible.id);
+  const copy = await db.estimate.findUniqueOrThrow({ where: { id: copyId } });
+  assert.equal(copy.status, "DRAFT");
+  assert.equal(copy.opportunityId, eligible.id);
+  assert.equal(copy.sellingPrice.toFixed(2), source.sellingPrice.toFixed(2));
+  assert.equal(
+    (await db.estimate.findUniqueOrThrow({ where: { id: source.id } }))
+      .opportunityId,
+    source.opportunityId,
+  );
+  assert.equal(
+    await db.estimateApproval.count({ where: { estimateId: copy.id } }),
+    0,
+  );
+  await assert.rejects(
+    handoffProject(x.owner, copy.id),
+    /ESTIMATE_NOT_ACCEPTED/,
+  );
+});
+test("OWNER-only financial visibility and real progress attribution survive template version changes", async () => {
+  const x = await fixture();
+  const admin = await db.user.create({
+    data: {
+      role: "ADMIN",
+      name: "Admin",
+      email: key() + "@example.invalid",
+      passwordHash: "not-login",
+    },
+  });
+  assert.equal((await workspace(admin, x.project.id)).financial, null);
+  await assert.rejects(
+    mutate(admin, x.project.id, "cost", {
+      category: "OTHER",
+      kind: "ACTUAL",
+      amount: "1",
+      description: "Not allowed",
+      sourceReference: key(),
+      requestKey: key(),
+    }),
+    /ACCESS_DENIED/,
+  );
+  await initializeTemplates(x.owner);
+  const t = await db.operationsTemplate.findFirstOrThrow({
+    where: { name: "Bathroom Remodeling", active: true },
+  });
+  await mutate(x.pm, x.project.id, "template", { templateId: t.id });
+  const task = await db.projectTask.findFirstOrThrow({
+    where: { projectId: x.project.id },
+  });
+  await mutate(x.pm, x.project.id, "task-edit", {
+    taskId: task.id,
+    title: task.title,
+    version: 0,
+    assigneeId: x.crew.id,
+    dueAt: "2026-10-20",
+  });
+  await mutate(x.crew, x.project.id, "task-progress", {
+    taskId: task.id,
+    version: 1,
+    progress: 50,
+    note: "Work started",
+  });
+  const before = await workspace(x.owner, x.project.id);
+  assert.ok(before.summary.progress > 0);
+  assert.equal(before.taskHistory[task.id].actorName, x.crew.name);
+  assert.ok(before.checklists.filter((c) => c.taskId === task.id).length >= 2);
+  await saveTemplate(x.owner, t.name, {
+    stages: [
+      {
+        title: "Custom",
+        tasks: ["Customized task"],
+        checklists: { "Customized task": ["Custom check"] },
+      },
+    ],
+  });
+  const after = await workspace(x.owner, x.project.id);
+  assert.deepEqual(
+    after.project.templateVersionSnapshot,
+    before.project.templateVersionSnapshot,
+  );
+  assert.equal(after.tasks.length, before.tasks.length);
+});

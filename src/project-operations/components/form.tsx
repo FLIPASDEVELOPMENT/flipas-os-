@@ -1,3 +1,4 @@
+import { Submit } from "./submit";
 import { randomUUID } from "node:crypto";
 import { projectAction } from "../server/actions";
 export type Field = {
@@ -71,7 +72,23 @@ export function OperationForm({
             </label>
           ),
         )}
-        <button>Save {title.toLowerCase()}</button>
+        <Submit
+          confirm={
+            [
+              "state",
+              "change-approve",
+              "change-apply",
+              "change-reject",
+              "cost-review",
+              "purchase-state",
+              "template",
+            ].includes(operation)
+              ? `Confirm ${title.toLowerCase()}? This action is validated and audited.`
+              : undefined
+          }
+        >
+          Save {title.toLowerCase()}
+        </Submit>
       </form>
     </details>
   );

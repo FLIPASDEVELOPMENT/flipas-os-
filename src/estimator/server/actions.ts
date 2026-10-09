@@ -99,6 +99,7 @@ export async function estimateAction(form: FormData) {
       "duplicate",
       "revise",
       "handoff",
+      "linked-copy",
     ])
     .parse(form.get("action"));
   let target = id,
@@ -141,6 +142,14 @@ export async function estimateAction(form: FormData) {
       case "duplicate":
       case "revise":
         target = await service.copyEstimate(u, id, action === "revise");
+        break;
+      case "linked-copy":
+        target = await service.copyEstimate(
+          u,
+          id,
+          false,
+          z.string().min(1).max(200).parse(form.get("opportunityId")),
+        );
         break;
       case "handoff":
         await service.handoffProject(u, id);

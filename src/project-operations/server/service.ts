@@ -511,14 +511,18 @@ export async function mutate(
             const task = await tx.projectTask.create({
               data: { projectId, title, stageId: created.id },
             });
-            await tx.projectChecklist.create({
-              data: {
-                projectId,
-                taskId: task.id,
-                title: "Confirm completion and record evidence",
-                required: true,
-              },
-            });
+            for (const criterion of stage.checklists?.[title] ?? [
+              "Confirm completion and record evidence",
+            ]) {
+              await tx.projectChecklist.create({
+                data: {
+                  projectId,
+                  taskId: task.id,
+                  title: criterion,
+                  required: true,
+                },
+              });
+            }
           }
         }
         result = await tx.project.update({

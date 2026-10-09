@@ -11,7 +11,7 @@ async function main() {
     const project = await db.project.findFirstOrThrow({
       orderBy: { createdAt: "desc" },
     });
-    for (const role of ["OWNER", "PROJECT_MANAGER", "CREW"] as const) {
+    for (const role of ["OWNER", "ADMIN", "PROJECT_MANAGER", "CREW"] as const) {
       const u = await db.user.create({
         data: {
           role,
@@ -75,11 +75,14 @@ async function main() {
       }
       const list = await fetch(base + "/projects", { headers });
       assert.equal(list.status, 200);
-      const detail = await fetch(base + "/projects/" + project.id, { headers });
+      const detail = await fetch(base + "/projects/" + project.id + "?tab=financial", { headers });
       assert.equal(detail.status, 200);
       const body = await detail.text();
       assert.equal(body.includes("Restricted project costs"), role === "OWNER");
-      assert.ok(body.includes("Daily job logs"));
+      assert.ok(
+        body.includes("Project progress") || body.includes("My task progress"),
+      );
+      assert.ok(body.includes("Main navigation"));
       assert.equal(
         (await fetch(base + "/owner/operations", { headers })).status,
         role === "OWNER" ? 200 : 404,

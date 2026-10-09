@@ -6,6 +6,9 @@ export function ProjectCalendar({
     id: string;
     title: string;
     dueAt: Date | null;
+    plannedStart?: Date | null;
+    assigneeName?: string;
+    dependencyCount?: number;
     completedAt: Date | null;
   }[];
   month: string;
@@ -38,10 +41,26 @@ export function ProjectCalendar({
             <div key={date}>
               <time dateTime={date}>{i + 1}</time>
               {tasks
-                .filter((t) => t.dueAt?.toISOString().slice(0, 10) === date)
+                .filter(
+                  (t) =>
+                    t.dueAt?.toISOString().slice(0, 10) === date ||
+                    t.plannedStart?.toISOString().slice(0, 10) === date,
+                )
                 .map((t) => (
                   <p key={t.id}>
-                    {t.completedAt ? "✓" : "○"} {t.title}
+                    {t.completedAt
+                      ? "✓"
+                      : t.dueAt && t.dueAt < new Date()
+                        ? "Late"
+                        : "○"}{" "}
+                    {t.title}
+                    <br />
+                    {t.assigneeName ?? "Unassigned"} ·{" "}
+                    {t.plannedStart?.toISOString().slice(0, 10) === date
+                      ? "Start"
+                      : "Due"}
+                    {!!t.dependencyCount &&
+                      ` · ${t.dependencyCount} prerequisite(s)`}
                   </p>
                 ))}
             </div>

@@ -12,6 +12,7 @@ export async function POST(
     return new Response("Origin not allowed", { status: 403 });
   const { id } = await params;
   let notice = "Evidence uploaded and audited";
+  let tab = "quality";
   try {
     const reader = request.body?.getReader();
     if (!reader) throw new Error("Missing upload");
@@ -40,6 +41,7 @@ export async function POST(
     const links: Record<string, string> = {};
     for (const name of ["taskId", "logId", "inspectionId"])
       if (form.get(name)) links[name] = String(form.get(name));
+    tab = links.taskId ? "tasks" : links.logId ? "logs" : "quality";
     await uploadEvidence(
       u,
       id,
@@ -52,7 +54,7 @@ export async function POST(
   }
   return Response.redirect(
     new URL(
-      `/projects/${encodeURIComponent(id)}?notice=${encodeURIComponent(notice)}`,
+      `/projects/${encodeURIComponent(id)}?tab=${tab}&notice=${encodeURIComponent(notice)}`,
       configured,
     ),
     303,

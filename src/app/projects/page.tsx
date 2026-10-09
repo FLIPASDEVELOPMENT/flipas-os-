@@ -21,6 +21,18 @@ export default async function Page() {
             <p>
               {p.state} {p.delayed && "· DELAYED"}
             </p>
+            <progress
+              max={100}
+              value={p.progress}
+              aria-label="Recorded task progress"
+            />
+            <p>{p.progress}% recorded task progress</p>
+            {p.nextTasks.map((t) => (
+              <p key={t.id}>
+                {t.title} ·{" "}
+                {t.dueAt?.toLocaleDateString("en-US") ?? "Unscheduled"} · {t.assigneeName ?? "Unassigned"}
+              </p>
+            ))}
             <p>{p.projectAddress || "Address not configured"}</p>
             <p>
               Manager: {p.projectManager?.name ?? "Unassigned"} ·{" "}

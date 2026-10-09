@@ -67,8 +67,31 @@ export async function projectAction(form: FormData) {
   }
   revalidatePath("/projects");
   revalidatePath("/owner/operations");
+  const tab =
+    operation.startsWith("task") ||
+    operation.startsWith("checklist") ||
+    operation === "dependency"
+      ? "tasks"
+      : operation.startsWith("stage")
+        ? "schedule"
+        : operation === "time" || operation === "member"
+          ? "crew"
+          : operation === "daily-log"
+            ? "logs"
+            : operation.startsWith("inspection") ||
+                operation.startsWith("defect")
+              ? "quality"
+              : operation === "material"
+                ? "materials"
+                : operation.startsWith("cost") ||
+                    operation.startsWith("purchase") ||
+                    operation.startsWith("change")
+                  ? operation === "change-request"
+                    ? "changes"
+                    : "financial"
+                  : "scope";
   redirect(
-    `/projects/${encodeURIComponent(projectId)}?notice=${encodeURIComponent(message)}`,
+    `/projects/${encodeURIComponent(projectId)}?tab=${tab}&notice=${encodeURIComponent(message)}`,
   );
 }
 const errors: Record<string, string> = {
@@ -122,7 +145,8 @@ export async function templateAction(form: FormData) {
         JSON.parse(String(form.get("definition"))),
       );
   } catch {
-    message = "Template rejected. Check permissions and the stages/tasks JSON.";
+    message =
+      "Template rejected. Check permissions, required stage/task names and checklist criteria.";
   }
   revalidatePath("/projects/templates");
   redirect(`/projects/templates?notice=${encodeURIComponent(message)}`);

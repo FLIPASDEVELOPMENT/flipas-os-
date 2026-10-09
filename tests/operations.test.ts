@@ -56,3 +56,57 @@ test("evidence rejects active content, empty files, oversized files and forged d
   png.writeUInt32BE(100000, 20);
   assert.throws(() => validateEvidenceFile(png, "x.png"));
 });
+import { handoffDiagnostic } from "../src/estimator/domain/handoff";
+test("handoff diagnostics check exact IDs, not labels or price equality", () => {
+  const e = {
+    status: "ACCEPTED",
+    customerId: "customer-A",
+    opportunityId: "opp-A",
+    opportunity: { id: "opp-A", stage: "WON", customerId: "customer-A" },
+  };
+  assert.equal(handoffDiagnostic(e).code, "READY");
+  assert.equal(
+    handoffDiagnostic({ ...e, status: "SENT" }).code,
+    "ESTIMATE_NOT_ACCEPTED",
+  );
+  assert.equal(
+    handoffDiagnostic({ ...e, opportunityId: null, opportunity: null }).code,
+    "NO_OPPORTUNITY_LINK",
+  );
+  assert.equal(
+    handoffDiagnostic({ ...e, opportunity: { ...e.opportunity, id: "opp-B" } })
+      .code,
+    "OPPORTUNITY_UNAVAILABLE",
+  );
+  assert.equal(
+    handoffDiagnostic({
+      ...e,
+      opportunity: { ...e.opportunity, customerId: "same-name-different-ID" },
+    }).code,
+    "CUSTOMER_ID_MISMATCH",
+  );
+  assert.equal(
+    handoffDiagnostic({ ...e, opportunity: { ...e.opportunity, stage: "NEW" } })
+      .code,
+    "LINKED_OPPORTUNITY_NOT_WON",
+  );
+});
+test("recommended procedures include practical checklist criteria and bounded size", () => {
+  for (const t of templates) {
+    const d = templateDefinition.parse({ stages: t.stages });
+    assert.ok(d.stages.some((s) => s.title === "Handover"));
+    assert.ok(
+      d.stages.every((s) =>
+        s.tasks.every((task) => (s.checklists?.[task]?.length ?? 0) > 0),
+      ),
+    );
+  }
+  assert.equal(
+    templateDefinition.safeParse({
+      stages: [
+        { title: "Test", tasks: ["A"], checklists: { B: ["Wrong task"] } },
+      ],
+    }).success,
+    false,
+  );
+});

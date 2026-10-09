@@ -1,3 +1,4 @@
+import { handoffDiagnostic } from "@/estimator/domain/handoff";
 import { parsePolicy, builderPolicy } from "@/owner/policy";
 import Link from "next/link";
 import Decimal from "decimal.js";
@@ -26,6 +27,14 @@ export default async function Detail({
   } catch {
     notFound();
   }
+  const diagnostic = handoffDiagnostic(e);
+  const candidates =
+    u.role === "OWNER" && e.status === "ACCEPTED"
+      ? await db.opportunity.findMany({
+          where: { customerId: e.customerId, stage: "WON", project: null },
+          select: { id: true, lead: { select: { serviceType: true } } },
+        })
+      : [];
   const isAdmin = canManage(u.role);
   const now = new Date();
   const [catalog, templates, settings, versions, project] = await Promise.all([
@@ -109,6 +118,7 @@ export default async function Detail({
           {isAdmin &&
             e.status === "ACCEPTED" &&
             !project &&
+            diagnostic.code === "READY" &&
             action("handoff", "Create initial project from WON opportunity")}
           {project && (
             <Link className="button secondary" href="/projects">
@@ -117,6 +127,52 @@ export default async function Detail({
           )}
         </div>
       </section>
+      {e.status === "ACCEPTED" && !project && (
+        <section className="panel">
+          <h2>Project eligibility</h2>
+          <p role="status">{diagnostic.message}</p>
+          {u.role === "OWNER" && (
+            <details>
+              <summary>
+                Review internal links and eligible opportunities
+              </summary>
+              <p>
+                Estimate ID: {e.id} · Customer ID: {e.customerId} · Linked
+                opportunity: {e.opportunityId ?? "Not linked"}
+              </p>
+              {candidates.length ? (
+                <form action={estimateAction}>
+                  <input type="hidden" name="id" value={e.id} />
+                  <label>
+                    Explicit eligible opportunity (same customer ID)
+                    <select name="opportunityId">
+                      {candidates.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.lead.serviceType} · WON · ID {o.id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p>
+                    Creates a separate DRAFT copy with preserved pricing
+                    snapshots. The accepted revision stays unchanged. Submit,
+                    approve, release and accept the new copy before creating a
+                    project.
+                  </p>
+                  <button name="action" value="linked-copy">
+                    Create linked draft copy — approval required
+                  </button>
+                </form>
+              ) : (
+                <p>
+                  No eligible WON opportunity exists for this exact customer ID
+                  without an existing project.
+                </p>
+              )}
+            </details>
+          )}
+        </section>
+      )}
       {e.status === "DRAFT" ? (
         <Builder
           key={e.contentVersion}

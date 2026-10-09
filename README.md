@@ -176,3 +176,5 @@ Phase 3 commercial context, safe sending preparation and Mac verification: [Comm
 Zoho sending OAuth, safety controls and the paused OWNER self-test procedure: [ZOHO_DELIVERY.md](docs/ZOHO_DELIVERY.md).
 
 Phase 4 project/field operations are documented in [PHASE_4_OPERATIONS.md](docs/PHASE_4_OPERATIONS.md), including safe Mac updates, project permissions, evidence quotas/backups and disposable integration tests.
+
+Project UX, exact handoff diagnostics and explicit versioned-template updates: [PHASE_4_UX_HARDENING.md](docs/PHASE_4_UX_HARDENING.md).

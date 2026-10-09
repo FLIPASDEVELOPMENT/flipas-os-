@@ -20,12 +20,38 @@ export async function projectList(u: User) {
       customer: { select: { firstName: true, lastName: true } },
       projectManager: { select: { name: true } },
       _count: { select: { tasks: true } },
+      tasks: {
+        select: {
+          id: true,
+          progress: true,
+          completedAt: true,
+          dueAt: true,
+          title: true,
+          assigneeId: true,
+        },
+        ...(u.role === "CREW" ? { where: { assigneeId: u.id } } : {}),
+      },
     },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
+  const assignees = await db.user.findMany({
+    where: { id: { in: [...new Set(rows.flatMap((p) => p.tasks.map((t) => t.assigneeId).filter((id): id is string => !!id)))] } },
+    select: { id: true, name: true },
+  });
   return rows.map((p) => ({
     ...p,
+    progress: p.tasks.length
+      ? Math.round(p.tasks.reduce((n, t) => n + t.progress, 0) / p.tasks.length)
+      : 0,
+    nextTasks: p.tasks
+      .filter((t) => !t.completedAt)
+      .sort(
+        (a, b) =>
+          (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity),
+      )
+      .slice(0, 3)
+      .map((t) => ({ ...t, assigneeName: assignees.find((a) => a.id === t.assigneeId)?.name })),
     state: canonicalState(p.status),
     delayed:
       overdue(p.estimatedCompletionDate, p.actualCompletionDate) &&
@@ -40,6 +66,7 @@ export async function workspace(u: User, projectId: string) {
       where: { id: projectId },
       select: {
         id: true,
+        originalScopeSnapshot: true,
         status: true,
         operationsVersion: true,
         projectAddress: true,
@@ -123,6 +150,94 @@ export async function workspace(u: User, projectId: string) {
         take: 100,
       }),
     ]);
+    const dependencies = await tx.taskDependency.findMany({
+      where: { projectId },
+      select: { taskId: true, prerequisiteId: true },
+    });
+    const allTasks = await tx.projectTask.findMany({
+      where: { projectId },
+      select: {
+        id: true,
+        stageId: true,
+        assigneeId: true,
+        progress: true,
+        completedAt: true,
+        dueAt: true,
+      },
+    });
+    const visible =
+      u.role === "CREW"
+        ? allTasks.filter((t) => t.assigneeId === u.id)
+        : allTasks;
+    const visibleStages =
+      u.role === "CREW"
+        ? stages.filter((s) => visible.some((t) => t.stageId === s.id))
+        : stages;
+    const summary = {
+      taskCount: visible.length,
+      completedTasks: visible.filter((t) => t.completedAt).length,
+      progress: visible.length
+        ? Math.round(
+            visible.reduce((sum, t) => sum + t.progress, 0) / visible.length,
+          )
+        : 0,
+      stageCount: visibleStages.length,
+      completedStages: visibleStages.filter((s) => {
+        const items = allTasks.filter((t) => t.stageId === s.id);
+        return !!items.length && items.every((t) => t.completedAt);
+      }).length,
+      overdueTasks: visible.filter((t) => overdue(t.dueAt, t.completedAt))
+        .length,
+      pendingMaterials: materials.filter((m) =>
+        m.receivedQuantity.lessThan(m.quantity),
+      ).length,
+      pendingInspections: inspections.filter(
+        (i) => i.required && i.status !== "APPROVED",
+      ).length,
+      blockingDefects: defects.filter((d) => d.blocking && !d.resolvedAt)
+        .length,
+    };
+    const progressEvents = await tx.projectEvent.findMany({
+      where: { projectId, type: "PROJECT_TASK_PROGRESS" },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+      select: { actorId: true, createdAt: true, metadata: true },
+    });
+    const recorders = await tx.user.findMany({
+      where: { id: { in: progressEvents.map((e) => e.actorId) } },
+      select: { id: true, name: true },
+    });
+    const taskHistory: Record<
+      string,
+      {
+        actorName: string;
+        at: Date;
+        entries: {
+          actorName: string;
+          at: Date;
+          note: string;
+          progress: number;
+        }[];
+      }
+    > = {};
+    for (const e of progressEvents) {
+      const input = (
+        e.metadata as {
+          input?: { taskId?: string; note?: string; progress?: number };
+        }
+      )?.input;
+      if (!input?.taskId || !visible.some((t) => t.id === input.taskId))
+        continue;
+      const actorName =
+        recorders.find((u) => u.id === e.actorId)?.name ?? "Former user";
+      taskHistory[input.taskId] ??= { actorName, at: e.createdAt, entries: [] };
+      taskHistory[input.taskId].entries.push({
+        actorName,
+        at: e.createdAt,
+        note: typeof input.note === "string" ? input.note.slice(0, 2000) : "",
+        progress: typeof input.progress === "number" ? input.progress : 0,
+      });
+    }
     const requestedChanges = await tx.projectChangeOrder.findMany({
       where: { projectId },
       select: {
@@ -206,7 +321,17 @@ export async function workspace(u: User, projectId: string) {
       };
     }
     return {
-      project: { ...project, state: canonicalState(project.status) },
+      project: {
+        ...project,
+        originalScopeSnapshot: {
+          scope:
+            typeof (project.originalScopeSnapshot as { scope?: unknown })
+              ?.scope === "string"
+              ? (project.originalScopeSnapshot as { scope: string }).scope
+              : "",
+        },
+        state: canonicalState(project.status),
+      },
       stages,
       tasks,
       members,
@@ -223,6 +348,9 @@ export async function workspace(u: User, projectId: string) {
       defects,
       evidence,
       events,
+      summary,
+      dependencies,
+      taskHistory,
       requestedChanges,
       financial,
     };
