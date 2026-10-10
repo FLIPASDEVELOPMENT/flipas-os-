@@ -252,3 +252,10 @@ export const templateDefinition = z
     (d) => d.stages.reduce((n, s) => n + s.tasks.length, 0) <= 200,
     "Template exceeds 200 tasks",
   );
+export const projectManagerRoles = ["OWNER", "PROJECT_MANAGER"] as const;
+export const taskAssigneeRoles = [
+  "OWNER",
+  "ADMIN",
+  "PROJECT_MANAGER",
+  "CREW",
+] as const;

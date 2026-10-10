@@ -882,3 +882,175 @@ test("PostgreSQL transaction clients never overlap, including relation loads and
     pg.Client.prototype.query = original;
   }
 });
+
+test("legacy and new projects enforce manager eligibility and explicit task membership", async () => {
+  for (const status of ["PRE_CONSTRUCTION", "PLANNING"] as const) {
+    const x = await fixture();
+    await db.project.update({ where: { id: x.project.id }, data: { status } });
+    await db.projectMember.deleteMany({ where: { projectId: x.project.id } });
+    const task = await db.projectTask.create({
+      data: {
+        projectId: x.project.id,
+        title: "Install backsplash",
+        progress: 30,
+      },
+    });
+    const details = {
+      address: "Tampa",
+      startDate: "2026-10-12",
+      completionDate: "2026-11-12",
+    };
+    for (const invalid of [x.crew, x.sales])
+      await assert.rejects(
+        mutate(x.owner, x.project.id, "details", {
+          ...details,
+          managerId: invalid.id,
+        }),
+        /INVALID_PROJECT_MANAGER/,
+      );
+    const admin = await db.user.create({
+      data: {
+        role: "ADMIN",
+        name: "Invalid manager",
+        email: key() + "@example.invalid",
+        passwordHash: "test-not-login",
+      },
+    });
+    await assert.rejects(
+      mutate(x.owner, x.project.id, "details", {
+        ...details,
+        managerId: admin.id,
+      }),
+      /INVALID_PROJECT_MANAGER/,
+    );
+    const unrelatedPM = await db.user.update({
+      where: { id: admin.id },
+      data: { role: "PROJECT_MANAGER" },
+    });
+    await assert.rejects(
+      mutate(unrelatedPM, x.project.id, "member", {
+        userId: x.crew.id,
+        kind: "EMPLOYEE",
+        active: true,
+      }),
+      /ACCESS_DENIED/,
+    );
+    await mutate(x.owner, x.project.id, "details", {
+      ...details,
+      managerId: x.owner.id,
+    });
+    await mutate(x.owner, x.project.id, "details", {
+      ...details,
+      managerId: x.pm.id,
+    });
+    const edit = {
+      taskId: task.id,
+      title: task.title,
+      dueAt: "2026-10-20",
+      version: 0,
+      assigneeId: x.crew.id,
+    };
+    await assert.rejects(
+      mutate(x.pm, x.project.id, "task-edit", edit),
+      /INVALID_ASSIGNEE/,
+    );
+    await assert.rejects(workspace(x.crew, x.project.id), /ACCESS_DENIED/);
+    await assert.rejects(
+      mutate(x.sales, x.project.id, "member", {
+        userId: x.crew.id,
+        kind: "EMPLOYEE",
+        active: true,
+      }),
+      /ACCESS_DENIED/,
+    );
+    await assert.rejects(
+      mutate(x.stranger, x.project.id, "member", {
+        userId: x.crew.id,
+        kind: "EMPLOYEE",
+        active: true,
+      }),
+      /ACCESS_DENIED/,
+    );
+    await mutate(x.pm, x.project.id, "member", {
+      userId: x.crew.id,
+      kind: "EMPLOYEE",
+      active: true,
+    });
+    await db.user.update({ where: { id: x.crew.id }, data: { active: false } });
+    await assert.rejects(
+      mutate(x.pm, x.project.id, "task-edit", edit),
+      /INVALID_ASSIGNEE/,
+    );
+    await db.user.update({
+      where: { id: x.crew.id },
+      data: { active: true, role: "SALES" },
+    });
+    await assert.rejects(
+      mutate(x.pm, x.project.id, "task-edit", edit),
+      /INVALID_ASSIGNEE/,
+    );
+    await assert.rejects(
+      mutate(x.pm, x.project.id, "task", {
+        title: "Invalid",
+        assigneeId: x.crew.id,
+        dueAt: "2026-10-20",
+        priority: "NORMAL",
+      }),
+      /INVALID_ASSIGNEE/,
+    );
+    await db.user.update({ where: { id: x.crew.id }, data: { role: "CREW" } });
+    await mutate(x.pm, x.project.id, "task-edit", edit);
+    await mutate(x.pm, x.project.id, "task", {
+      title: "Assigned new task",
+      assigneeId: x.crew.id,
+      dueAt: "2026-10-20",
+      priority: "NORMAL",
+    });
+    await mutate(x.pm, x.project.id, "task", {
+      title: "Not assigned to CREW",
+      dueAt: "2026-10-20",
+      priority: "NORMAL",
+    });
+    const w = await workspace(x.crew, x.project.id);
+    assert.equal(w.financial, null);
+    assert.ok(w.tasks.some((t) => t.id === task.id && t.progress === 30));
+    assert.ok(w.tasks.every((t) => t.assigneeId === x.crew.id));
+    await assert.rejects(
+      mutate(x.crew, x.project.id, "task-edit", { ...edit, version: 1 }),
+      /ACCESS_DENIED/,
+    );
+    await db.user.update({ where: { id: x.pm.id }, data: { active: false } });
+    await assert.rejects(
+      mutate(x.owner, x.project.id, "details", {
+        ...details,
+        managerId: x.pm.id,
+      }),
+      /INVALID_PROJECT_MANAGER/,
+    );
+    await db.user.update({ where: { id: x.pm.id }, data: { active: true } });
+    await mutate(x.owner, x.project.id, "member", {
+      userId: x.pm.id,
+      kind: "EMPLOYEE",
+      active: false,
+    });
+    await assert.rejects(workspace(x.pm, x.project.id), /ACCESS_DENIED/);
+    assert.equal(
+      (await db.projectTask.findUniqueOrThrow({ where: { id: task.id } }))
+        .progress,
+      30,
+    );
+    assert.ok(
+      await db.projectEvent.count({
+        where: { projectId: x.project.id, type: "PROJECT_MANAGER_CHANGED" },
+      }),
+    );
+    assert.ok(
+      await db.projectEvent.count({
+        where: {
+          projectId: x.project.id,
+          type: "PROJECT_TASK_ASSIGNEE_CHANGED",
+        },
+      }),
+    );
+  }
+});

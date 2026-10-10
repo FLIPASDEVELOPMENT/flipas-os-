@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { db } from "@/server/db";
+import { projectManagerRoles, taskAssigneeRoles } from "../domain/rules";
 import { Prisma, type User } from "@/generated/prisma/client";
 import {
   canonicalState,
@@ -18,6 +19,18 @@ import {
   templateDefinition,
 } from "../domain/rules";
 type TX = Prisma.TransactionClient;
+async function eligibleTaskAssignee(tx: TX, projectId: string, userId: string) {
+  const user = await tx.user.findFirst({
+    where: { id: userId, active: true, role: { in: [...taskAssigneeRoles] } },
+  });
+  return (
+    !!user &&
+    !!(await tx.projectMember.findFirst({
+      where: { projectId, userId, active: true },
+    }))
+  );
+}
+
 const json = (v: unknown) =>
   JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue;
 export function projectScope(u: User): Prisma.ProjectWhereInput {
@@ -124,10 +137,14 @@ export async function mutate(
           where: {
             id: d.managerId,
             active: true,
-            role: { in: ["OWNER", "ADMIN", "PROJECT_MANAGER"] },
+            role: { in: [...projectManagerRoles] },
           },
         });
-        if (!manager) throw new Error("INVALID_ASSIGNEE");
+        if (!manager) throw new Error("INVALID_PROJECT_MANAGER");
+        await event(tx, u, projectId, "PROJECT_MANAGER_CHANGED", {
+          before: p.projectManagerId,
+          after: d.managerId,
+        });
         result = await tx.project.update({
           where: { id: projectId },
           data: {
@@ -208,11 +225,17 @@ export async function mutate(
           create: { projectId, ...d },
           update: { kind: d.kind, active: d.active },
         });
-        if (!d.active)
+        if (!d.active) {
+          if (p.projectManagerId === d.userId)
+            await tx.project.update({
+              where: { id: projectId },
+              data: { projectManagerId: null },
+            });
           await tx.projectTask.updateMany({
             where: { projectId, assigneeId: d.userId },
             data: { assigneeId: null, version: { increment: 1 } },
           });
+        }
       } else if (operation === "stage") {
         const d = z
           .object({
@@ -243,9 +266,7 @@ export async function mutate(
           throw new Error("PROJECT_LINK_MISMATCH");
         if (
           d.assigneeId &&
-          !(await tx.projectMember.findFirst({
-            where: { projectId, userId: d.assigneeId, active: true },
-          }))
+          !(await eligibleTaskAssignee(tx, projectId, d.assigneeId))
         )
           throw new Error("INVALID_ASSIGNEE");
         result = await tx.projectTask.create({ data: { projectId, ...d } });
@@ -265,9 +286,7 @@ export async function mutate(
         if (task.version !== d.version) throw new Error("STALE_VERSION");
         if (
           d.assigneeId &&
-          !(await tx.projectMember.findFirst({
-            where: { projectId, userId: d.assigneeId, active: true },
-          }))
+          !(await eligibleTaskAssignee(tx, projectId, d.assigneeId))
         )
           throw new Error("INVALID_ASSIGNEE");
         result = await tx.projectTask.update({
@@ -278,6 +297,11 @@ export async function mutate(
             dueAt: d.dueAt,
             version: { increment: 1 },
           },
+        });
+        await event(tx, u, projectId, "PROJECT_TASK_ASSIGNEE_CHANGED", {
+          taskId: task.id,
+          before: task.assigneeId,
+          after: d.assigneeId ?? null,
         });
       } else if (operation === "stage-edit") {
         const d = z

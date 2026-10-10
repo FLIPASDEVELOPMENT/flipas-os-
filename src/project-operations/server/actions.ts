@@ -98,7 +98,10 @@ const errors: Record<string, string> = {
   INVALID_TRANSITION:
     "This state transition is not allowed. Review the project lifecycle.",
   INVALID_DATES: "End dates must not precede start dates.",
-  INVALID_ASSIGNEE: "Choose an active assigned worker with an eligible role.",
+  INVALID_ASSIGNEE:
+    "Choose an active eligible worker assigned to this project. Add missing workers in Project Crew first.",
+  INVALID_PROJECT_MANAGER:
+    "Choose an active OWNER or PROJECT_MANAGER. Other roles cannot be Project Manager.",
   PROJECT_LINK_MISMATCH: "The selected record does not belong to this project.",
   NEGATIVE_REVISED_BUDGET:
     "This change would produce a negative revised budget. Review the amounts.",

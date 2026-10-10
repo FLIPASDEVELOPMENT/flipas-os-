@@ -94,6 +94,32 @@ async function main() {
       );
       assert.equal(detail.status, 200);
       const body = await detail.text();
+      if (role === "OWNER") {
+        const scopeHtml = await (
+          await fetch(base + "/projects/" + project.id + "?tab=scope", {
+            headers,
+          })
+        ).text();
+        check = "manager selector eligibility";
+        assert.ok(scopeHtml.includes("Project Manager"));
+        const managerOptions = scopeHtml.match(
+          /<select[^>]*name="managerId"[^>]*>([\s\S]*?)<\/select>/,
+        )?.[1];
+        assert.ok(managerOptions);
+        assert.ok(managerOptions.includes(u.id));
+        const invalidManagers = await db.user.findMany({
+          where: { role: { in: ["CREW", "ADMIN", "SALES", "CUSTOMER"] } },
+          select: { id: true },
+        });
+        for (const invalid of invalidManagers)
+          assert.equal(managerOptions.includes(invalid.id), false);
+        const tasksHtml = await (
+          await fetch(base + "/projects/" + project.id + "?tab=tasks", {
+            headers,
+          })
+        ).text();
+        assert.ok(tasksHtml.includes("assign them in Project Crew"));
+      }
       check = role + ": financial heading";
       assert.equal(body.includes("Restricted project costs"), role === "OWNER");
       assert.ok(

@@ -11,7 +11,12 @@ import {
   EvidenceForm,
   type Field,
 } from "@/project-operations/components/form";
-import { states, managers } from "@/project-operations/domain/rules";
+import {
+  states,
+  managers,
+  projectManagerRoles,
+  taskAssigneeRoles,
+} from "@/project-operations/domain/rules";
 export default async function Page({
   params,
   searchParams,
@@ -43,9 +48,14 @@ export default async function Page({
   );
   const assignee: Field = {
     name: "assigneeId",
+    label: "Task assignee",
     optional: true,
     options: w.users
-      .filter((x) => w.members.some((m) => m.userId === x.id && m.active))
+      .filter(
+        (x) =>
+          taskAssigneeRoles.some((role) => role === x.role) &&
+          w.members.some((m) => m.userId === x.id && m.active),
+      )
       .map((x) => ({ value: x.id, label: x.name })),
   };
   const allWorkers = manage
@@ -54,7 +64,7 @@ export default async function Page({
           active: true,
           role: { in: ["OWNER", "ADMIN", "PROJECT_MANAGER", "CREW"] },
         },
-        select: { id: true, name: true },
+        select: { id: true, name: true, role: true },
       })
     : [];
   const templateRows = manage
@@ -142,10 +152,19 @@ export default async function Page({
                 f("completionDate", "date"),
                 {
                   name: "managerId",
-                  options: allWorkers.map((x) => ({
-                    value: x.id,
-                    label: x.name,
-                  })),
+                  label: "Project Manager",
+                  value: w.project.projectManagerId ?? undefined,
+                  options: [
+                    { value: "", label: "Select Project Manager" },
+                    ...allWorkers
+                      .filter((x) =>
+                        projectManagerRoles.some((role) => role === x.role),
+                      )
+                      .map((x) => ({
+                        value: x.id,
+                        label: x.name,
+                      })),
+                  ],
                 },
               ])}
               {form("state", "Change project state", [
@@ -258,6 +277,17 @@ export default async function Page({
           <h2>
             {u.role === "CREW" ? "My assigned tasks" : "Tasks and checklists"}
           </h2>
+          {manage && (
+            <p>
+              Task assignees must be active members of this project. If a worker
+              is missing, first{" "}
+              <Link href={`/projects/${id}?tab=crew`}>
+                assign them in Project Crew
+              </Link>
+              , then return here. Creating an account alone does not authorize
+              project access.
+            </p>
+          )}
           {!w.tasks.length && (
             <p>
               No assigned tasks yet. A project manager can apply an execution
@@ -436,6 +466,7 @@ export default async function Page({
             form("member", "Assign or remove crew", [
               {
                 name: "userId",
+                label: "Project crew member",
                 options: allWorkers.map((x) => ({
                   value: x.id,
                   label: x.name,

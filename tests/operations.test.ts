@@ -110,3 +110,14 @@ test("recommended procedures include practical checklist criteria and bounded si
     false,
   );
 });
+
+test("manager eligibility excludes general crew and commercial roles", async () => {
+  const { projectManagerRoles, taskAssigneeRoles } =
+    await import("../src/project-operations/domain/rules");
+  assert.deepEqual([...projectManagerRoles], ["OWNER", "PROJECT_MANAGER"]);
+  assert.ok(taskAssigneeRoles.includes("CREW"));
+  assert.equal(
+    taskAssigneeRoles.some((role) => String(role) === "SALES"),
+    false,
+  );
+});
