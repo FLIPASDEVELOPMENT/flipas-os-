@@ -45,7 +45,11 @@ export async function authorized(
   finance = false,
 ) {
   const current = await tx.user.findUnique({ where: { id: u.id } });
-  if (!current?.active || current.role !== u.role)
+  if (
+    !current?.active ||
+    current.passwordChangeRequired ||
+    current.role !== u.role
+  )
     throw new Error("ACCESS_DENIED");
   const p = await tx.project.findFirst({
     where: { AND: [{ id: projectId }, projectScope(current)] },

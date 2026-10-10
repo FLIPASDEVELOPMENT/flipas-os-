@@ -52,6 +52,7 @@ export function WorkspaceShell({
           <p className="muted" style={{ color: "#b2c2bd" }}>
             {user.role.replaceAll("_", " ")}
           </p>
+          <Link href="/account/password">Change password</Link>
           <form action={logout}>
             <button>Sign out</button>
           </form>

@@ -2,6 +2,9 @@ import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 const source = process.env.DATABASE_URL;
+const suite = process.argv[2] ?? "operations";
+if (!["operations", "team"].includes(suite))
+  throw new Error("Supported disposable suites: operations, team.");
 if (!source)
   throw new Error(
     "DATABASE_URL must be configured privately before running tests.",
@@ -27,7 +30,7 @@ try {
     ZOHO_SEND_ENABLED: "false",
   };
   run("npm", ["run", "db:migrate"], env);
-  run("npm", ["run", "test:operations"], env);
+  run("npm", ["run", "test:" + suite], env);
 } finally {
   if (created)
     run("docker", ["compose", "exec", "-T", "db", "dropdb", "-U", user, name]);

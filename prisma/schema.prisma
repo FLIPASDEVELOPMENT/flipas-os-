@@ -92,6 +92,7 @@ model User {
  email String @unique
  name String
  passwordHash String
+ passwordChangeRequired Boolean @default(false)
  role Role @default(SALES)
  active Boolean @default(true)
  sessions Session[]

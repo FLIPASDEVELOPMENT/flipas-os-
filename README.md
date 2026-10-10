@@ -45,7 +45,7 @@ unset USER_PASSWORD
 npm run dev
 ```
 
-Open the app on port 3000 in your own local environment. The cloud onboarding UI does not provide a localhost preview. Provision additional users using the same CLI with their role. Duplicate email provisioning fails and never overwrites an existing account. Keep CLI/database access restricted to administrators. Password reset and MFA/SSO are not implemented in Phase 1.
+Open the app on port 3000 in your own local environment. The cloud onboarding UI does not provide a localhost preview. After Phase 4 migration, OWNER can create employees, reset initial passwords, revoke sessions and authorize projects through [Team & Permissions](docs/TEAM_PERMISSIONS.md) at `/owner/team`. Existing CLI bootstrap remains available to trusted administrators; duplicate emails fail without overwriting accounts. MFA/SSO is not implemented.
 
 Optional development fixtures:
 

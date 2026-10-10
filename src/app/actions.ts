@@ -59,14 +59,20 @@ export async function login(form: FormData) {
   if (!user || !user.active || !valid) redirect("/login?error=credentials");
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  await db.$transaction([
-    db.session.create({
+  const granted = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id} FOR NO KEY UPDATE`;
+    const current = await tx.user.findUnique({ where: { id: user.id } });
+    if (!current?.active || current.passwordHash !== user.passwordHash)
+      return false;
+    await tx.session.create({
       data: { tokenHash: tokenHash(token), userId: user.id, expiresAt },
-    }),
-    db.activity.create({
+    });
+    await tx.activity.create({
       data: { type: "LOGIN", message: "User signed in", actorId: user.id },
-    }),
-  ]);
+    });
+    return true;
+  });
+  if (!granted) redirect("/login?error=credentials");
   (await cookies()).set("flipas_session", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -74,7 +80,13 @@ export async function login(form: FormData) {
     path: "/",
     expires: expiresAt,
   });
-  redirect("/");
+  redirect(
+    user.passwordChangeRequired
+      ? "/account/password"
+      : user.role === "PROJECT_MANAGER" || user.role === "CREW"
+        ? "/projects"
+        : "/",
+  );
 }
 export async function logout() {
   await assertOrigin();

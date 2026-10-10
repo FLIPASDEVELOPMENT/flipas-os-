@@ -32,7 +32,10 @@
     "test:openai": "tsx --test tests/openai-budget.integration.ts",
     "test:commercial": "tsx --test tests/commercial.integration.ts",
     "test:zoho:delivery": "tsx --test tests/zoho-delivery.integration.ts",
-    "test:operations:mobile": "tsx tests/operations.mobile.mjs"
+    "test:operations:mobile": "tsx tests/operations.mobile.mjs",
+    "test:team": "tsx --test tests/team.integration.ts",
+    "test:team:http": "tsx tests/team.http.ts",
+    "test:team:local": "node scripts/test-operations-local.mjs team"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",
