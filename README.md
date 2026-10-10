@@ -180,3 +180,5 @@ Phase 4 project/field operations are documented in [PHASE_4_OPERATIONS.md](docs/
 Project UX, exact handoff diagnostics and explicit versioned-template updates: [PHASE_4_UX_HARDENING.md](docs/PHASE_4_UX_HARDENING.md).
 
 PostgreSQL transaction concurrency correction and local regression procedure: [POSTGRES_TRANSACTION_SERIALIZATION.md](docs/POSTGRES_TRANSACTION_SERIALIZATION.md).
+
+Mobile project navigation, field task actions and browser validation: [PHASE_4_MOBILE_UX.md](docs/PHASE_4_MOBILE_UX.md).

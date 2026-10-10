@@ -103,22 +103,25 @@ export function EvidenceForm({
   id: string;
 }) {
   return (
-    <form
-      action={`/api/projects/${projectId}/evidence`}
-      method="post"
-      encType="multipart/form-data"
-    >
-      <input type="hidden" name={target} value={id} />
-      <label>
-        Photo evidence (JPEG, PNG, WebP; 5 MB)
-        <input
-          type="file"
-          name="file"
-          accept="image/jpeg,image/png,image/webp"
-          required
-        />
-      </label>
-      <button>Upload evidence</button>
-    </form>
+    <details className="operation-form evidence-form">
+      <summary>Add photo evidence</summary>
+      <form
+        action={`/api/projects/${projectId}/evidence`}
+        method="post"
+        encType="multipart/form-data"
+      >
+        <input type="hidden" name={target} value={id} />
+        <label>
+          Photo evidence (JPEG, PNG, WebP; 5 MB)
+          <input
+            type="file"
+            name="file"
+            accept="image/jpeg,image/png,image/webp"
+            required
+          />
+        </label>
+        <button>Upload evidence</button>
+      </form>
+    </details>
   );
 }

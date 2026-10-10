@@ -5,6 +5,7 @@ import { db } from "../src/server/db";
 import { tokenHash } from "../src/server/auth";
 if (!new URL(process.env.DATABASE_URL!).pathname.endsWith("_test"))
   throw new Error("Disposable *_test database required");
+let check = "fixture";
 async function main() {
   const base = process.env.SMOKE_BASE_URL!;
   try {
@@ -34,6 +35,18 @@ async function main() {
       });
       const headers = { Cookie: `flipas_session=${token}` };
       if (role === "OWNER") {
+        await db.projectCostEntry.create({
+          data: {
+            projectId: project.id,
+            category: "OTHER",
+            kind: "ACTUAL",
+            amount: "17.23",
+            description: "HTTP restricted financial sentinel",
+            sourceReference: "HTTP restricted financial sentinel",
+            recordedById: u.id,
+            requestKey: randomBytes(12).toString("hex"),
+          },
+        });
         const task = await db.projectTask.create({
           data: { projectId: project.id, title: "HTTP photo target" },
         });
@@ -75,14 +88,45 @@ async function main() {
       }
       const list = await fetch(base + "/projects", { headers });
       assert.equal(list.status, 200);
-      const detail = await fetch(base + "/projects/" + project.id + "?tab=financial", { headers });
+      const detail = await fetch(
+        base + "/projects/" + project.id + "?tab=financial",
+        { headers },
+      );
       assert.equal(detail.status, 200);
       const body = await detail.text();
+      check = role + ": financial heading";
       assert.equal(body.includes("Restricted project costs"), role === "OWNER");
       assert.ok(
         body.includes("Project progress") || body.includes("My task progress"),
       );
       assert.ok(body.includes("Main navigation"));
+      assert.ok(body.includes("mobile-menu-toggle"));
+      assert.ok(body.includes("project-section-select"));
+      check = role + ": finance option";
+      assert.equal(body.includes("OWNER finances"), role === "OWNER");
+      check = role + ": HTML finance sentinel";
+      assert.equal(
+        body.includes("HTTP restricted financial sentinel"),
+        role === "OWNER",
+      );
+      const flight = await fetch(
+        base + "/projects/" + project.id + "?tab=financial",
+        { headers: { ...headers, RSC: "1" } },
+      );
+      check = role + ": RSC status";
+      assert.equal(flight.status, 200);
+      check = role + ": RSC finance sentinel";
+      assert.equal(
+        (await flight.text()).includes("HTTP restricted financial sentinel"),
+        role === "OWNER",
+      );
+      check = role + ": field actions";
+      assert.equal(body.includes("Field actions"), role === "CREW");
+      check = role + ": templates";
+      assert.equal(
+        body.includes("/projects/templates"),
+        ["OWNER", "ADMIN"].includes(role),
+      );
       assert.equal(
         (await fetch(base + "/owner/operations", { headers })).status,
         role === "OWNER" ? 200 : 404,
@@ -114,6 +158,8 @@ async function main() {
   }
 }
 main().catch(() => {
-  console.error("Operations HTTP failed; no request headers or secrets logged");
+  console.error(
+    `Operations HTTP failed at ${check}; no request headers or secrets logged`,
+  );
   process.exitCode = 1;
 });

@@ -259,3 +259,46 @@ th {
 /* Shared project workspace, with accessible section navigation. */
 .main.operations-shell{max-width:none;margin:0;min-width:0;width:100%;padding:30px}.project-tabs{display:flex;gap:6px;overflow-x:auto;padding:8px 0 14px;position:sticky;top:0;background:#f4f5f1;z-index:2}.project-tabs button{white-space:nowrap;background:white;color:var(--ink);border:1px solid #cad3cf}.project-tabs button[aria-current]{background:var(--ink);color:white}.project-tab-panel{min-height:350px}.project-summary progress{width:100%;accent-color:var(--accent);height:16px}.project-summary strong{display:block;font-size:24px;margin-top:8px}.operations-shell .panel h3{margin:0 0 8px}.operations-shell fieldset{border:1px solid #cad3cf;border-radius:8px;padding:16px;margin:12px 0}.operations-shell button:disabled{opacity:.6;cursor:wait}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #b9502b;outline-offset:3px}@media(max-width:800px){.main.operations-shell{padding:16px}.shell .sidebar{padding:16px}.shell .sidebar nav{display:flex;gap:8px;overflow-x:auto;margin:12px 0}.shell .sidebar nav a{white-space:nowrap}.shell .sidebar .muted{display:none}.shell .sidebar p{margin:5px 0}.shell .sidebar form{margin-top:8px}.project-calendar{min-width:540px}.project-tab-panel #schedule{overflow-x:auto}.operations-shell .top{flex-wrap:wrap;gap:8px}}
 .evidence-thumbnails{display:flex;gap:12px;flex-wrap:wrap}.evidence-thumbnails a{max-width:140px;font-size:12px;overflow-wrap:anywhere}.evidence-thumbnails img{display:block;object-fit:cover;border-radius:6px;margin-bottom:6px}
+
+/* Compact field navigation; authorization is applied before any content is rendered. */
+.mobile-menu-toggle,.project-mobile-navigation{display:none}
+.workspace-menu{display:block}
+.project-tabs{flex-wrap:wrap;overflow-x:visible}
+.project-overview{margin:12px 0;border:1px solid #cad3cf;border-radius:8px;padding:0 12px}
+.project-overview>summary{font-weight:600}
+.task-card progress{width:100%;accent-color:var(--accent);height:10px}
+.task-card .task-context,.task-card .task-checklist{border-top:1px solid #d8e1de}
+.task-card>p{margin:8px 0}
+@media(max-width:800px){
+  .shell{grid-template-rows:auto 1fr}
+  .shell .sidebar{position:relative;padding:12px 16px}
+  .shell .sidebar .brand{font-size:20px;line-height:1.4;padding-right:150px;margin:0}
+  .mobile-menu-toggle{display:flex;gap:8px;align-items:center;justify-content:center;position:absolute;right:16px;top:8px;min-height:44px;padding:8px 12px;margin:0;font-size:14px;border:1px solid #b2c2bd}
+  .mobile-menu-toggle span{font-size:10px}
+  .workspace-menu{display:none}
+  .workspace-menu.is-open{display:block;margin-top:12px}
+  .shell .sidebar .workspace-menu nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible;gap:4px;margin:8px 0}
+  .shell .sidebar .workspace-menu nav a{white-space:normal;overflow-wrap:anywhere;min-height:44px;padding:10px}
+  .main.operations-shell{padding:12px;overflow-wrap:anywhere}
+  .operations-shell .top{display:none}
+  .operations-shell h1{font-size:1.45rem;margin:10px 0}
+  .operations-shell h2{font-size:1.15rem;margin:8px 0}
+  .operations-shell .project-tabs{display:none}
+  .project-mobile-navigation{display:block;position:sticky;top:0;z-index:3;background:#f4f5f1;padding:6px 0 8px}
+  .operations-shell .project-mobile-navigation label{margin:0 0 4px;font-size:13px}
+  .project-mobile-navigation select{display:block;width:100%;max-width:100%;font-size:16px}
+  .field-quick-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:4px}
+  .operations-shell .field-quick-actions button{padding:8px 4px;margin:0;white-space:normal;font-size:13px;min-height:44px}
+  .field-quick-actions button[aria-current]{background:#b9502b}
+  .project-overview{margin:8px 0;font-size:13px}
+  .project-overview>summary{padding:8px 0;min-height:44px}
+  .operations-shell .task-card{padding:12px;margin:0;min-width:0}
+  .task-card h3{font-size:1rem;overflow-wrap:anywhere}
+  .task-card summary{font-size:14px;min-height:44px;display:flex;align-items:center;padding:6px 0}
+  .task-card .operation-form{padding:0}
+  .task-card p{font-size:13px}
+  .operations-shell input,.operations-shell textarea,.operations-shell select{font-size:16px;min-width:0;max-width:100%}
+  .operations-shell form,.operations-shell label,.operations-grid>*{min-width:0}
+  .operations-shell input[type=file]{padding:8px 0;font-size:13px}
+  .project-tab-panel{min-height:0}
+}

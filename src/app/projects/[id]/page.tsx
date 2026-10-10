@@ -80,34 +80,44 @@ export default async function Page({
           {notice.slice(0, 300)}
         </p>
       )}
-      <div className="project-summary operations-grid">
-        <article className="panel">
-          <h2>{u.role === "CREW" ? "My task progress" : "Project progress"}</h2>
-          <progress max={100} value={w.summary.progress} />
-          <strong>{w.summary.progress}%</strong>
-          <p>
-            {w.summary.completedTasks}/{w.summary.taskCount} tasks complete ·{" "}
-            {w.summary.completedStages}/{w.summary.stageCount} stages complete
-          </p>
-        </article>
-        <article className="panel">
-          <h2>Operational alerts</h2>
-          <p>
-            {w.summary.overdueTasks} overdue tasks ·{" "}
-            {w.summary.pendingMaterials} pending materials
-          </p>
-          <p>
-            {w.summary.pendingInspections} pending required inspections ·{" "}
-            {w.summary.blockingDefects} blocking defects
-          </p>
-          <p>
-            Target:{" "}
-            {w.project.estimatedCompletionDate?.toLocaleDateString("en-US") ??
-              "Not scheduled"}
-          </p>
-        </article>
-      </div>
+      <details className="project-overview">
+        <summary>
+          {u.role === "CREW" ? "My progress" : "Project summary"}:{" "}
+          {w.summary.progress}% · {w.summary.overdueTasks} overdue tasks · View
+          alerts
+        </summary>
+        <div className="project-summary operations-grid">
+          <article className="panel">
+            <h2>
+              {u.role === "CREW" ? "My task progress" : "Project progress"}
+            </h2>
+            <progress max={100} value={w.summary.progress} />
+            <strong>{w.summary.progress}%</strong>
+            <p>
+              {w.summary.completedTasks}/{w.summary.taskCount} tasks complete ·{" "}
+              {w.summary.completedStages}/{w.summary.stageCount} stages complete
+            </p>
+          </article>
+          <article className="panel">
+            <h2>Operational alerts</h2>
+            <p>
+              {w.summary.overdueTasks} overdue tasks ·{" "}
+              {w.summary.pendingMaterials} pending materials
+            </p>
+            <p>
+              {w.summary.pendingInspections} pending required inspections ·{" "}
+              {w.summary.blockingDefects} blocking defects
+            </p>
+            <p>
+              Target:{" "}
+              {w.project.estimatedCompletionDate?.toLocaleDateString("en-US") ??
+                "Not scheduled"}
+            </p>
+          </article>
+        </div>
+      </details>
       <ProjectSections
+        crew={u.role === "CREW"}
         key={query.tab ?? (u.role === "CREW" ? "tasks" : "scope")}
         initialTab={query.tab ?? (u.role === "CREW" ? "tasks" : "scope")}
       >
@@ -248,11 +258,23 @@ export default async function Page({
           <h2>
             {u.role === "CREW" ? "My assigned tasks" : "Tasks and checklists"}
           </h2>
-          {!w.tasks.length && <p>No assigned tasks yet. A project manager can apply an execution template or add a task.</p>}
+          {!w.tasks.length && (
+            <p>
+              No assigned tasks yet. A project manager can apply an execution
+              template or add a task.
+            </p>
+          )}
           <div className="operations-grid">
             {w.tasks.map((t) => (
-              <article key={t.id} className="panel">
+              <article key={t.id} className="panel task-card">
                 <h3>{t.title}</h3>
+                {u.role !== "SALES" &&
+                  form("task-progress", "Record progress", [
+                    hidden("taskId", t.id),
+                    hidden("version", t.version),
+                    f("progress", "number", t.progress),
+                    f("note", "textarea", t.completionNote, true),
+                  ])}
                 <p className="muted">
                   Stage:{" "}
                   {w.stages.find((s) => s.id === t.stageId)?.title ??
@@ -261,27 +283,66 @@ export default async function Page({
                   {w.users.find((x) => x.id === t.assigneeId)?.name ??
                     "Unassigned"}
                 </p>
-                <p className="muted">
-                  Prerequisites:{" "}
-                  {w.dependencies
-                    .filter((d) => d.taskId === t.id)
-                    .map(
-                      (d) =>
-                        w.tasks.find((x) => x.id === d.prerequisiteId)?.title ??
-                        "Restricted prerequisite",
-                    )
-                    .join(", ") || "None"}
-                </p>
-                <p className="muted">
-                  Recorded by:{" "}
-                  {w.taskHistory[t.id]?.actorName ?? "No progress record"} ·
-                  Supervisor completion approval: not recorded at task level.
-                  Project inspection approval is separate.
-                </p>
+                <details className="task-context">
+                  <summary>Dependencies and recorded completion</summary>
+                  <p className="muted">
+                    Prerequisites:{" "}
+                    {w.dependencies
+                      .filter((d) => d.taskId === t.id)
+                      .map(
+                        (d) =>
+                          w.tasks.find((x) => x.id === d.prerequisiteId)
+                            ?.title ?? "Restricted prerequisite",
+                      )
+                      .join(", ") || "None"}
+                  </p>
+                  <p className="muted">
+                    Recorded by:{" "}
+                    {w.taskHistory[t.id]?.actorName ?? "No progress record"} ·
+                    Supervisor completion approval: not recorded at task level.
+                    Project inspection approval is separate.
+                  </p>
+                </details>
+                <progress
+                  max={100}
+                  value={t.progress}
+                  aria-label={`${t.title} progress`}
+                />
                 <p>
                   {t.priority} · {t.status} · {t.progress}% · Due{" "}
                   {t.dueAt?.toLocaleDateString() ?? "Unscheduled"}
                 </p>
+                {u.role !== "SALES" && (
+                  <>
+                    <EvidenceForm projectId={id} target="taskId" id={t.id} />
+                    <details className="task-checklist">
+                      <summary>
+                        Checklist ·{" "}
+                        {
+                          w.checklists.filter(
+                            (c) => c.taskId === t.id && c.completedAt,
+                          ).length
+                        }
+                        /{w.checklists.filter((c) => c.taskId === t.id).length}{" "}
+                        complete
+                      </summary>
+                      {w.checklists
+                        .filter((c) => c.taskId === t.id)
+                        .map((c) => (
+                          <div key={c.id}>
+                            <p>
+                              {c.completedAt ? "✓" : "○"} {c.title}{" "}
+                              {c.required && "(required)"}
+                            </p>
+                            {form("checklist", "Checklist result", [
+                              hidden("checklistId", c.id),
+                              choices("completed", ["true", "false"]),
+                            ])}
+                          </div>
+                        ))}
+                    </details>
+                  </>
+                )}
                 <details>
                   <summary>Progress history and photos</summary>
                   {w.taskHistory[t.id]?.entries.map((entry, i) => (
@@ -309,31 +370,6 @@ export default async function Page({
                       ))}
                   </div>
                 </details>
-                {u.role !== "SALES" && (
-                  <>
-                    {form("task-progress", "Record progress", [
-                      hidden("taskId", t.id),
-                      hidden("version", t.version),
-                      f("progress", "number", t.progress),
-                      f("note", "textarea", t.completionNote, true),
-                    ])}
-                    <EvidenceForm projectId={id} target="taskId" id={t.id} />
-                    {w.checklists
-                      .filter((c) => c.taskId === t.id)
-                      .map((c) => (
-                        <div key={c.id}>
-                          <p>
-                            {c.completedAt ? "✓" : "○"} {c.title}{" "}
-                            {c.required && "(required)"}
-                          </p>
-                          {form("checklist", "Checklist result", [
-                            hidden("checklistId", c.id),
-                            choices("completed", ["true", "false"]),
-                          ])}
-                        </div>
-                      ))}
-                  </>
-                )}
                 {manage && (
                   <>
                     {form("task-edit", "Edit task", [
