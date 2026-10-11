@@ -10,7 +10,11 @@ import {
   purchaseData,
   readDocument,
   approveBatch,
+  stageImport,
+  importPreview,
+  confirmImport,
 } from "../src/purchases/service";
+import { readFileSync } from "node:fs";
 import { sample } from "./purchases.fixture";
 import { mutate } from "../src/project-operations/server/service";
 import { workspace } from "../src/project-operations/server/view";
@@ -18,6 +22,89 @@ import type { Role } from "../src/generated/prisma/client";
 if (!new URL(process.env.DATABASE_URL!).pathname.endsWith("_test"))
   throw new Error("Disposable *_test database required");
 after(() => db.$disconnect());
+test("Pro Xtra preview, explicit import, blocked returns, permissions and idempotent costs", async () => {
+  const { owner, project } = await fixture();
+  const csv = readFileSync(
+    new URL(
+      "../docs/examples/home-depot-pro-xtra-synthetic.csv",
+      import.meta.url,
+    ),
+  );
+  const id = await stageImport(owner, "native.csv", csv);
+  assert.equal(
+    await db.importedPurchase.count({ where: { documentId: id } }),
+    0,
+  );
+  const preview = await importPreview(owner, id);
+  assert.equal(preview.validRows, 3);
+  assert.equal(preview.pendingRows, 2);
+  await assert.rejects(confirmImport(owner, id, false));
+  for (const role of [
+    "ADMIN",
+    "SALES",
+    "PROJECT_MANAGER",
+    "CREW",
+    "CUSTOMER",
+  ] as const) {
+    const user = await make(role);
+    await assert.rejects(stageImport(user, "native.csv", csv), /ACCESS_DENIED/);
+    await assert.rejects(importPreview(user, id), /ACCESS_DENIED/);
+    await assert.rejects(confirmImport(user, id, true), /ACCESS_DENIED/);
+  }
+  const confirmed = await confirmImport(owner, id, true);
+  assert.equal(confirmed.imported, 5);
+  assert.equal((await confirmImport(owner, id, true)).imported, 0);
+  const rows = await db.importedPurchase.findMany({
+    where: { documentId: id },
+  });
+  for (const p of rows.filter((p) => p.status === "NEEDS_REVIEW")) {
+    await assert.rejects(
+      reviewPurchase(owner, p.id, 0, [], "Cannot bypass return guard"),
+      /UNSUPPORTED_MOVEMENT/,
+    );
+    await assert.rejects(
+      approvePurchase(owner, p.id, 1, true),
+      /UNSUPPORTED_MOVEMENT/,
+    );
+    assert.equal(
+      await db.purchasePosting.count({ where: { purchaseId: p.id } }),
+      0,
+    );
+  }
+  const purchase = rows.find((p) => p.status === "IMPORTED")!;
+  const original =
+    purchase.original as unknown as import("../src/purchases/validation").PurchaseData;
+  await reviewPurchase(
+    owner,
+    purchase.id,
+    0,
+    [
+      {
+        lineId: "summary",
+        amount: original.header.transaction_total,
+        category: "Tile",
+        costType: "MATERIAL",
+        projectId: project.id,
+      },
+    ],
+    "Verified synthetic receipt and transaction date",
+  );
+  await Promise.all([
+    approvePurchase(owner, purchase.id, 1, true),
+    approvePurchase(owner, purchase.id, 1, true),
+  ]);
+  assert.equal(
+    await db.purchasePosting.count({ where: { purchaseId: purchase.id } }),
+    1,
+  );
+  assert.equal(
+    await db.projectCostEntry.count({
+      where: { projectId: project.id, kind: "ACTUAL" },
+    }),
+    1,
+  );
+  assert.equal((await importPreview(owner, id)).matches.length, 5);
+});
 const make = (role: Role) =>
   db.user.create({
     data: {

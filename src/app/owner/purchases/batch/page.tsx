@@ -7,7 +7,7 @@ import type { PurchaseData, Allocations } from "@/purchases/validation";
 export default async function Batch() {
   await requireOwner();
   const rows = await db.importedPurchase.findMany({
-    where: { status: "NEEDS_REVIEW" },
+    where: { status: "NEEDS_REVIEW", reviews: { some: {} } },
     include: { reviews: { orderBy: { version: "desc" }, take: 1 } },
     orderBy: { createdAt: "asc" },
     take: 20,

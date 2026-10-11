@@ -75,6 +75,7 @@ async function main() {
       "/owner/purchases/reports",
       "/owner/purchases/batch",
       "/owner/purchases/" + p.id,
+      "/owner/purchases/imports/" + result.documentId,
     ]) {
       checkpoint = role + " " + path;
       for (const h of [headers, { ...headers, RSC: "1" }]) {
@@ -130,6 +131,18 @@ async function main() {
           .status,
         "NEEDS_REVIEW",
       );
+      form.set("operation", "confirm-import");
+      form.set("documentId", result.documentId);
+      const confirm = await fetch(
+        base + "/owner/purchases/imports/" + result.documentId,
+        {
+          method: "POST",
+          headers: { ...headers, Origin: base },
+          body: form,
+          redirect: "manual",
+        },
+      );
+      assert.ok([303, 404].includes(confirm.status));
     }
   }
   assert.equal(

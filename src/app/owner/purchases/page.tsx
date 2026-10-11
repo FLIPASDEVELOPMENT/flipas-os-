@@ -29,11 +29,13 @@ export default async function Purchases({
         <Link href="/owner/profitability">Project profitability</Link>
       </nav>
       <section className="panel">
-        <h2>Import normalized CSV</h2>
+        <h2>Import Home Depot Pro Xtra or normalized CSV</h2>
         <p>
-          USD only; up to 500 lines and 1 MB. Use the documented format.
-          Returns/credits, inventory consumption and original PDF/image receipts
-          are not supported in 5A.
+          USD only; up to 500 lines and 1 MB. Home Depot Purchase Tracking CSV
+          headers are detected after initial metadata. Preview before
+          confirming. Returns/credits are retained pending and cannot record
+          costs. Inventory consumption and PDF/image receipts are not supported
+          in 5A.
         </p>
         <form action={purchaseAction}>
           <input name="operation" value="import" type="hidden" />
@@ -41,14 +43,15 @@ export default async function Purchases({
             CSV file
             <input type="file" name="file" accept=".csv,text/csv" required />
           </label>
-          <Submit>Import pending purchases</Submit>
+          <Submit>Preview CSV import</Submit>
         </form>
       </section>
       <section className="panel">
         <h2>Integration status</h2>
         <p>
-          Manual CSV: available. Home Depot CSV / Lowe&apos;s CSV / QuickBooks
-          CSV: normalized file sources only, not live connectors.
+          Home Depot Pro Xtra Purchase Tracking CSV: available. Manual /
+          Lowe&apos;s / QuickBooks normalized CSV: available. No live
+          connectors.
         </p>
         <p>
           Home Depot API, Lowe&apos;s API, Intuit OAuth and AI classification:

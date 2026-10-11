@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { db } from "../src/server/db.ts";
 import { tokenHash } from "../src/server/auth.ts";
 import { sample } from "./purchases.fixture.ts";
@@ -42,6 +43,57 @@ try {
     executablePath: process.env.CHROMIUM_EXECUTABLE || undefined,
     headless: true,
   });
+  {
+    const context = await browser.newContext({
+      viewport: { width: 430, height: 850 },
+    });
+    await context.addCookies([
+      { name: "flipas_session", value: token, url: base },
+    ]);
+    const page = await context.newPage();
+    const before = await db.importedPurchase.count(),
+      costs = await db.projectCostEntry.count();
+    await page.goto(base + "/owner/purchases");
+    await page
+      .locator('input[type="file"]')
+      .setInputFiles({
+        name: "native.csv",
+        mimeType: "text/csv",
+        buffer: readFileSync(
+          new URL(
+            "../docs/examples/home-depot-pro-xtra-synthetic.csv",
+            import.meta.url,
+          ),
+        ),
+      });
+    await page.getByRole("button", { name: "Preview CSV import" }).click();
+    await page.waitForURL(/\/owner\/purchases\/imports\//);
+    assert.ok(
+      (await page.locator("body").innerText()).includes("3 valid rows"),
+    );
+    assert.ok(
+      (await page.locator("body").innerText()).includes(
+        "2 unsupported/ambiguous",
+      ),
+    );
+    assert.equal(await db.importedPurchase.count(), before);
+    assert.ok(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+      ),
+    );
+    await page.locator('input[name="confirmation"]').check();
+    await page
+      .getByRole("button", { name: "Confirm import — no costs recorded" })
+      .click();
+    await page.waitForURL(/notice=/);
+    assert.equal(await db.importedPurchase.count(), before + 5);
+    assert.equal(await db.projectCostEntry.count(), costs);
+    console.log(
+      "Home Depot browser PASS: upload → preview → explicit confirmation; returns blocked; zero costs",
+    );
+    await context.close();
+  }
   for (const width of [375, 390, 430, 1280]) {
     const context = await browser.newContext({
       viewport: { width, height: 850 },

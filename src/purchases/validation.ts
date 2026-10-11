@@ -192,7 +192,21 @@ export function parsePurchases(data: Buffer) {
       throw new Error("TOTAL_MISMATCH");
   return [...groups.values()];
 }
-export type PurchaseData = ReturnType<typeof parsePurchases>[number];
+export type PurchaseData = ReturnType<typeof parsePurchases>[number] & {
+  native?: {
+    adapter: "HOME_DEPOT_PRO_XTRA_V1";
+    transactionId: string;
+    projectName: string;
+    jobName: string;
+    orderNumber: string;
+    invoiceNumber: string;
+    dateBasis: "Date" | "Receipt Added Date";
+    programDiscount: string;
+    otherDiscount: string;
+    warnings: string[];
+    blockedReasons: string[];
+  };
+};
 export function validateDistribution(p: PurchaseData, input: unknown) {
   const allocations = allocationsInput.parse(input);
   for (const a of allocations)

@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/owner/auth";
 import {
-  importCSV,
+  stageImport,
+  confirmImport,
   approveBatch,
   reviewPurchase,
   approvePurchase,
@@ -12,7 +13,10 @@ import {
 } from "./service";
 const messages: Record<string, string> = {
   FILE_LIMIT: "CSV must be nonempty and at most 1 MB.",
-  CSV_COLUMNS: "Use the documented CSV headers and at most 500 lines.",
+  CSV_COLUMNS:
+    "Use a Home Depot Pro Xtra Purchase Tracking export or the documented normalized CSV, with at most 500 data rows.",
+  UNSUPPORTED_MOVEMENT:
+    "This movement is pending evidence review only. Returns, credits or ambiguous totals cannot be approved or recorded as project costs.",
   TOTAL_MISMATCH:
     "Line or transaction totals do not balance. Nothing was imported.",
   SOURCE_CONFLICT:
@@ -44,6 +48,7 @@ export async function purchaseAction(form: FormData) {
     throw new Error("ACCESS_DENIED");
   const id = String(form.get("purchaseId") ?? "");
   let notice = "Saved and audited.";
+  let previewId: string | undefined;
   try {
     const op = form.get("operation"),
       version = Number(form.get("version"));
@@ -53,6 +58,13 @@ export async function purchaseAction(form: FormData) {
         form.getAll("reviews").map((v) => JSON.parse(String(v))),
       );
       notice = `Approved ${result.filter((r) => r.approved).length}; blocked ${result.filter((r) => !r.approved).length}. Each item is audited separately. Review blocked items individually.`;
+    } else if (op === "confirm-import") {
+      const r = await confirmImport(
+        u,
+        String(form.get("documentId") ?? ""),
+        form.get("confirmation") === "on",
+      );
+      notice = `Imported ${r.imported}; repeated ${r.repeated}. Unsupported movements remain blocked. Costs are unchanged until separate OWNER approval.`;
     } else if (op === "import") {
       const file = form.get("file");
       if (
@@ -61,12 +73,13 @@ export async function purchaseAction(form: FormData) {
         file.size > 1048576
       )
         throw new Error("FILE_LIMIT");
-      const r = await importCSV(
+      previewId = await stageImport(
         u,
         file.name,
         Buffer.from(await file.arrayBuffer()),
       );
-      notice = `Imported ${r.imported}; repeated ${r.repeated}. Costs are unchanged until approval.`;
+      notice =
+        "Preview prepared. No purchases or project costs have been recorded.";
     } else if (op === "review")
       await reviewPurchase(
         u,
@@ -90,6 +103,8 @@ export async function purchaseAction(form: FormData) {
   revalidatePath("/owner/purchases");
   revalidatePath("/owner/profitability");
   revalidatePath("/projects");
+  if (previewId)
+    redirect("/owner/purchases/imports/" + encodeURIComponent(previewId));
   redirect(
     (id ? "/owner/purchases/" + encodeURIComponent(id) : "/owner/purchases") +
       "?notice=" +

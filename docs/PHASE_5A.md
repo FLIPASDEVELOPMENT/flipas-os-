@@ -1,5 +1,7 @@
 # Phase 5A — compras bajo control de OWNER
 
+Actualización posterior: [adaptador CSV nativo Home Depot Pro Xtra](HOME_DEPOT_CSV.md). Ese documento sustituye las limitaciones iniciales sobre CSV nativo y devoluciones: ahora se importa el historial observado directamente, y los movimientos no soportados se conservan pendientes sin reconocer costos. El resto de este informe describe la entrega inicial `1045099`.
+
 ## Auditoría y alcance
 
 Base inspeccionada: Phase 4 `22e65aa`, árbol inicialmente limpio. En el remoto, `main` estaba en `51c9824`, mientras Phase 4 conservaba cambios posteriores. Esta rama parte de Phase 4, sin descartar esos cambios, fusionar ni reescribir historial.

@@ -1,13 +1,13 @@
 import { db } from "@/server/db";
 import type { Prisma, User } from "@/generated/prisma/client";
 import {
-  parsePurchases,
   validateDistribution,
   digest,
   type PurchaseData,
   type Allocations,
 } from "./validation";
 import { z } from "zod";
+import { previewCSV } from "./home-depot";
 type TX = Prisma.TransactionClient;
 function canonical(value: unknown) {
   return JSON.stringify(value, (_, v) =>
@@ -48,27 +48,32 @@ export async function importCSV(u: User, fileName: string, data: Buffer) {
   return db.$transaction(
     async (tx) => {
       await owner(tx, u);
-      const groups = parsePurchases(data),
+      const groups = previewCSV(data).purchases,
         sha256 = digest(data);
       const prior = await tx.purchaseDocument.findUnique({ where: { sha256 } });
-      if (prior)
+      if (
+        prior &&
+        (await tx.importedPurchase.count({ where: { documentId: prior.id } }))
+      )
         return { documentId: prior.id, imported: 0, repeated: groups.length };
       const used = await tx.purchaseDocument.aggregate({
         _sum: { byteSize: true },
       });
-      if ((used._sum.byteSize ?? 0) + data.length > 104857600)
+      if (!prior && (used._sum.byteSize ?? 0) + data.length > 104857600)
         throw new Error("DOCUMENT_QUOTA");
-      const doc = await tx.purchaseDocument.create({
-        data: {
-          sha256,
-          fileName:
-            fileName.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 100) ||
-            "purchases.csv",
-          data: Uint8Array.from(data),
-          byteSize: data.length,
-          importedById: u.id,
-        },
-      });
+      const doc =
+        prior ??
+        (await tx.purchaseDocument.create({
+          data: {
+            sha256,
+            fileName:
+              fileName.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 100) ||
+              "purchases.csv",
+            data: Uint8Array.from(data),
+            byteSize: data.length,
+            importedById: u.id,
+          },
+        }));
       let imported = 0,
         repeated = 0;
       for (const g of groups) {
@@ -87,6 +92,9 @@ export async function importCSV(u: User, fileName: string, data: Buffer) {
             evidenceKey: g.evidenceKey,
             documentId: doc.id,
             original: json(g),
+            status: g.native?.blockedReasons.length
+              ? "NEEDS_REVIEW"
+              : "IMPORTED",
           },
         });
         await audit(tx, u, "PURCHASE_IMPORTED", p.id, {
@@ -126,6 +134,8 @@ export async function reviewPurchase(
   return db.$transaction(async (tx) => {
     await owner(tx, u);
     const p = await tx.importedPurchase.findUniqueOrThrow({ where: { id } });
+    if ((p.original as unknown as PurchaseData).native?.blockedReasons.length)
+      throw new Error("UNSUPPORTED_MOVEMENT");
     if (["APPROVED", "REJECTED"].includes(p.status))
       throw new Error("PURCHASE_FINAL");
     if (p.headVersion !== expectedVersion) throw new Error("STALE_VERSION");
@@ -167,6 +177,8 @@ export async function approvePurchase(
     async (tx) => {
       await owner(tx, u);
       const p = await tx.importedPurchase.findUniqueOrThrow({ where: { id } });
+      if ((p.original as unknown as PurchaseData).native?.blockedReasons.length)
+        throw new Error("UNSUPPORTED_MOVEMENT");
       if (p.status === "APPROVED") {
         if (p.approvedVersion !== version) throw new Error("STALE_VERSION");
         return p;
@@ -334,6 +346,66 @@ export async function readDocument(u: User, id: string) {
     await owner(tx, u);
     return tx.purchaseDocument.findUniqueOrThrow({ where: { id } });
   });
+}
+
+export async function stageImport(u: User, fileName: string, data: Buffer) {
+  return db.$transaction(async (tx) => {
+    await owner(tx, u);
+    previewCSV(data); // Validate before retaining original evidence. No purchases or costs created.
+    const sha256 = digest(data);
+    const prior = await tx.purchaseDocument.findUnique({ where: { sha256 } });
+    if (prior) return prior.id;
+    const used = await tx.purchaseDocument.aggregate({
+      _sum: { byteSize: true },
+    });
+    if ((used._sum.byteSize ?? 0) + data.length > 104857600)
+      throw new Error("DOCUMENT_QUOTA");
+    const doc = await tx.purchaseDocument.create({
+      data: {
+        sha256,
+        fileName:
+          fileName.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 100) ||
+          "purchases.csv",
+        data: Uint8Array.from(data),
+        byteSize: data.length,
+        importedById: u.id,
+      },
+    });
+    await audit(tx, u, "PURCHASE_IMPORT_PREVIEW", doc.id, {
+      documentId: doc.id,
+    });
+    return doc.id;
+  });
+}
+export async function importPreview(u: User, documentId: string) {
+  return db.$transaction(async (tx) => {
+    await owner(tx, u);
+    const doc = await tx.purchaseDocument.findUniqueOrThrow({
+      where: { id: documentId },
+    });
+    const preview = previewCSV(Buffer.from(doc.data));
+    const matches = await tx.importedPurchase.findMany({
+      where: {
+        OR: [
+          { sourceKey: { in: preview.purchases.map((p) => p.sourceKey) } },
+          { evidenceKey: { in: preview.purchases.map((p) => p.evidenceKey) } },
+        ],
+      },
+      select: { id: true, sourceKey: true, evidenceKey: true, status: true },
+    });
+    return { documentId, fileName: doc.fileName, ...preview, matches };
+  });
+}
+export async function confirmImport(
+  u: User,
+  documentId: string,
+  confirmed: boolean,
+) {
+  z.literal(true).parse(confirmed);
+  const doc = await readDocument(u, documentId);
+  const result = await importCSV(u, doc.fileName, Buffer.from(doc.data));
+  // Immutable source bytes are reparsed; no normalized values are trusted from the browser.
+  return result;
 }
 
 export async function approveBatch(u: User, input: unknown) {

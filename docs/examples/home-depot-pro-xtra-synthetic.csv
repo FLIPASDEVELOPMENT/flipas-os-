@@ -1,0 +1,12 @@
+Company Name,SYNTHETIC EXAMPLE ONLY
+Phone Number,000-000-0000
+Source,Purchase Tracking
+Date Range,09/11/24 to 10/11/26
+Export Date,October 11 2026 11:13:40
+ 
+Date,Receipt Added Date,Order Origin,Purchaser,Transaction ID,Register Number,Project Name,Job Name,Program Disc Amt,Other Disc,Pre-tax Amount,Total Amount Paid,Order Number,Payment,Text2Confirm,Card/Account Nickname,Invoice Number
+,2026-10-01,"#0000, Test Store",Test buyer,1001,2,Sample Kitchen,SAMPLE-KITCHEN,,-$5.00,$100.00,$107.00,,Card,,,
+,2026-10-01,online,Test buyer,1002,2,Sample Kitchen,SAMPLE-KITCHEN,,$0.00,$50.00,$53.50,SAMPLE-ONLINE-1,Card,,,INV-A
+,2026-10-01,online,Test buyer,1003,2,Sample Kitchen,SAMPLE-KITCHEN,,$0.00,$25.00,$26.75,SAMPLE-ONLINE-1,Card,,,INV-B
+,2026-10-01,"#0000, Test Store",Test buyer,1,2,Sample Kitchen,SAMPLE-KITCHEN,,-$5.00,-$20.00,-$21.40,,Card,,,
+,2026-10-01,"#0000, Test Store",Test buyer,1,2,Sample Kitchen,SAMPLE-KITCHEN,,-$5.00,-$10.00,-$10.70,,Card,,,

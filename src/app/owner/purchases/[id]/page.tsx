@@ -46,6 +46,7 @@ export default async function Purchase({
         costType: "MATERIAL" as const,
       }));
   const final = ["APPROVED", "REJECTED"].includes(p.status);
+  const blocked = Boolean(d.native?.blockedReasons.length);
   return (
     <>
       <Link href="/owner/purchases">← Purchase Inbox</Link>
@@ -87,12 +88,42 @@ export default async function Purchase({
           </p>
         )}
       </section>
+      {d.native && (
+        <section className="panel">
+          <h2>Original Home Depot transaction summary</h2>
+          <p>
+            Transaction ID {d.native.transactionId} · Order{" "}
+            {d.native.orderNumber || "Not supplied"} · Invoice{" "}
+            {d.native.invoiceNumber || "Not supplied"}
+          </p>
+          <p>
+            Project Name: {d.native.projectName || "Not supplied"} · Job Name:{" "}
+            {d.native.jobName || "Not supplied"}
+          </p>
+          <p>
+            Date basis: {d.native.dateBasis} · Reported program discount $
+            {d.native.programDiscount} · Reported other discount $
+            {d.native.otherDiscount}
+          </p>
+          {d.native.warnings.map((w, i) => (
+            <p key={i}>{w}</p>
+          ))}
+          {d.native.blockedReasons.map((w, i) => (
+            <p role="alert" key={i}>
+              Cost recognition blocked: {w}
+            </p>
+          ))}
+        </section>
+      )}
       <div className="operations-grid">
         {d.lines.map((l) => (
           <section className="panel" key={l.line_id}>
             <h2>{l.description}</h2>
             <p>
-              SKU {l.sku || "Unknown"} · Quantity {l.quantity} · Unit $
+              {d.native
+                ? "Accounting summary unit, not an item quantity"
+                : `SKU ${l.sku || "Unknown"} · Quantity ${l.quantity}`}{" "}
+              · {d.native ? "Reported pre-tax $" : "Unit $"}
               {l.unit_price}
             </p>
             <p>
@@ -102,7 +133,7 @@ export default async function Purchase({
           </section>
         ))}
       </div>
-      {!final && (
+      {!final && !blocked && (
         <section className="panel">
           <h2>Manual classification and splits</h2>
           <ReviewForm
@@ -135,7 +166,7 @@ export default async function Purchase({
                 : "New recognition"}
             </p>
           ))}
-          {!final && (
+          {!final && !blocked && (
             <form action={purchaseAction}>
               <input type="hidden" name="operation" value="approve" />
               <input type="hidden" name="purchaseId" value={id} />

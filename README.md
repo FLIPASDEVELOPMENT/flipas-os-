@@ -12,6 +12,8 @@ Read [architecture](docs/ARCHITECTURE.md), [data model](docs/DATA_MODEL.md) and 
 
 Phase 5A adds OWNER-only normalized CSV purchases, versioned manual review, explicit approval and idempotent actual-cost recognition. See [Phase 5A audit, limitations, tests and safe macOS update/backup instructions](docs/PHASE_5A.md). Purchasing AI and external accounting/provider connectors remain unimplemented and disabled.
 
+Home Depot Pro Xtra Purchase Tracking exports can now be uploaded directly with a mandatory preview before import. See [native CSV mapping, pending returns, limitations and macOS update steps](docs/HOME_DEPOT_CSV.md).
+
 ## Local development
 
 Requires Node.js 24, npm, Docker and Docker Compose. Use the existing isolated checkout; no worktree is needed.
