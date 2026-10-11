@@ -26,6 +26,12 @@ test("real Pro Xtra headers after metadata; job names, signs, net totals and dis
   assert.equal(p.validRows, 3);
   assert.equal(p.pendingRows, 2);
   assert.equal(p.rejected.length, 0);
+  assert.equal(
+    previewCSV(
+      Buffer.from(homeDepotSample().toString().replaceAll("\n", "\r\n")),
+    ).purchases.length,
+    5,
+  );
   const first = p.purchases[0];
   assert.equal(first.header.job_name, "SAMPLE-KITCHEN");
   assert.equal(first.native?.projectName, "Sample Kitchen");
