@@ -960,3 +960,57 @@ model ProjectEvent {
  actorId String
  metadata Json
 }
+
+model PurchaseDocument {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ sha256 String @unique
+ fileName String
+ byteSize Int
+ data Bytes
+ importedById String
+ purchases ImportedPurchase[]
+}
+model ImportedPurchase {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ sourceKey String @unique
+ evidenceKey String
+ documentId String
+ document PurchaseDocument @relation(fields:[documentId],references:[id])
+ original Json
+ status String @default("IMPORTED")
+ headVersion Int @default(0)
+ approvedVersion Int?
+ approvedById String?
+ approvedAt DateTime?
+ reviews PurchaseReview[]
+ postings PurchasePosting[]
+ @@index([evidenceKey])
+}
+model PurchaseReview {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ purchaseId String
+ purchase ImportedPurchase @relation(fields:[purchaseId],references:[id])
+ version Int
+ allocations Json
+ reason String
+ createdById String
+ @@unique([purchaseId,version])
+}
+model PurchasePosting {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ purchaseId String
+ purchase ImportedPurchase @relation(fields:[purchaseId],references:[id])
+ reviewVersion Int
+ allocationIndex Int
+ projectId String?
+ estimateLineId String?
+ ledgerId String? @unique
+ amount Decimal @db.Decimal(14,2)
+ category String
+ costType String
+ @@unique([purchaseId,allocationIndex])
+}

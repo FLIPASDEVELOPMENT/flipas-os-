@@ -1,0 +1,15 @@
+export const categories = [
+  "Cabinets",
+  "Countertops",
+  "Tile",
+  "Plumbing",
+  "Electrical",
+  "Flooring",
+  "Drywall",
+  "Paint",
+  "Labor",
+  "Subcontractors",
+  "Equipment",
+  "General Overhead",
+  "Other",
+] as const;

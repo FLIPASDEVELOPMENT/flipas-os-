@@ -3,8 +3,8 @@ import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 const source = process.env.DATABASE_URL;
 const suite = process.argv[2] ?? "operations";
-if (!["operations", "team"].includes(suite))
-  throw new Error("Supported disposable suites: operations, team.");
+if (!["operations", "team", "purchases"].includes(suite))
+  throw new Error("Supported disposable suites: operations, team, purchases.");
 if (!source)
   throw new Error(
     "DATABASE_URL must be configured privately before running tests.",

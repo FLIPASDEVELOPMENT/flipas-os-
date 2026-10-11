@@ -1,0 +1,14 @@
+CREATE TABLE "PurchaseDocument" ("id" TEXT PRIMARY KEY,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"sha256" TEXT NOT NULL UNIQUE,"fileName" TEXT NOT NULL,"byteSize" INTEGER NOT NULL,"data" BYTEA NOT NULL,"importedById" TEXT NOT NULL REFERENCES "User"("id"),CHECK("byteSize">0 AND "byteSize"<=1048576 AND octet_length("data")="byteSize"));
+CREATE TABLE "ImportedPurchase" ("id" TEXT PRIMARY KEY,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"sourceKey" TEXT NOT NULL UNIQUE,"evidenceKey" TEXT NOT NULL,"documentId" TEXT NOT NULL REFERENCES "PurchaseDocument"("id"),"original" JSONB NOT NULL,"status" TEXT NOT NULL DEFAULT 'IMPORTED',"headVersion" INTEGER NOT NULL DEFAULT 0,"approvedVersion" INTEGER,"approvedById" TEXT REFERENCES "User"("id"),"approvedAt" TIMESTAMP(3),CHECK("status" IN ('IMPORTED','NEEDS_REVIEW','APPROVED','REJECTED')));
+CREATE INDEX "ImportedPurchase_evidenceKey_idx" ON "ImportedPurchase"("evidenceKey");
+CREATE TABLE "PurchaseReview" ("id" TEXT PRIMARY KEY,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"purchaseId" TEXT NOT NULL REFERENCES "ImportedPurchase"("id"),"version" INTEGER NOT NULL,"allocations" JSONB NOT NULL,"reason" TEXT NOT NULL,"createdById" TEXT NOT NULL REFERENCES "User"("id"),UNIQUE("purchaseId","version"));
+CREATE TABLE "PurchasePosting" ("id" TEXT PRIMARY KEY,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"purchaseId" TEXT NOT NULL REFERENCES "ImportedPurchase"("id"),"reviewVersion" INTEGER NOT NULL,"allocationIndex" INTEGER NOT NULL,"projectId" TEXT REFERENCES "Project"("id"),"estimateLineId" TEXT REFERENCES "EstimateLineItem"("id"),"ledgerId" TEXT UNIQUE REFERENCES "ProjectCostEntry"("id"),"amount" DECIMAL(14,2) NOT NULL CHECK("amount">=0),"category" TEXT NOT NULL,"costType" TEXT NOT NULL,UNIQUE("purchaseId","allocationIndex"));
+CREATE TRIGGER purchase_documents_immutable BEFORE UPDATE OR DELETE ON "PurchaseDocument" FOR EACH ROW EXECUTE FUNCTION operations_immutable();
+CREATE TRIGGER purchase_reviews_immutable BEFORE UPDATE OR DELETE ON "PurchaseReview" FOR EACH ROW EXECUTE FUNCTION operations_immutable();
+CREATE TRIGGER purchase_postings_immutable BEFORE UPDATE OR DELETE ON "PurchasePosting" FOR EACH ROW EXECUTE FUNCTION operations_immutable();
+CREATE FUNCTION purchase_original_frozen() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+ IF TG_OP='DELETE' THEN RAISE EXCEPTION 'Purchase history cannot be deleted'; END IF;
+ IF NEW."original" IS DISTINCT FROM OLD."original" OR NEW."documentId"<>OLD."documentId" OR NEW."sourceKey"<>OLD."sourceKey" OR NEW."evidenceKey"<>OLD."evidenceKey" THEN RAISE EXCEPTION 'Imported evidence is immutable'; END IF;
+ IF OLD."status" IN ('APPROVED','REJECTED') THEN RAISE EXCEPTION 'Finalized purchase is immutable'; END IF;
+ RETURN NEW; END $$;
+CREATE TRIGGER purchase_original_frozen BEFORE UPDATE OR DELETE ON "ImportedPurchase" FOR EACH ROW EXECUTE FUNCTION purchase_original_frozen();

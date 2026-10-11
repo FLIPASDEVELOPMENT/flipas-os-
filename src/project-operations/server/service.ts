@@ -660,6 +660,20 @@ export async function mutate(
         )
           throw new Error("PURCHASE_COMMITMENT_ALREADY_TRACKED");
         if (
+          d.kind === "ACTUAL" &&
+          (await tx.importedPurchase.count({
+            where: {
+              status: "APPROVED",
+              original: {
+                path: ["header", "receipt_id"],
+                equals: d.sourceReference,
+              },
+              postings: { some: { projectId, ledgerId: { not: null } } },
+            },
+          }))
+        )
+          throw new Error("DUPLICATE_COST_REFERENCE");
+        if (
           await tx.projectCostEntry.count({
             where: {
               projectId,

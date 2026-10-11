@@ -1,0 +1,2 @@
+source,external_id,vendor,date,receipt_id,po_number,job_name,store,currency,line_id,sku,description,quantity,unit_price,tax,discount,line_total,transaction_total
+"MANUAL_CSV","external-1","Test vendor","2026-10-11","receipt-1","","Test kitchen","","USD","1","SKU-1","Backsplash tile — SAMPLE ONLY","2","20.00","2.80","2.00","40.80","40.80"

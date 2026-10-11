@@ -17,6 +17,7 @@ export default async function OwnerLayout({
             ["/owner/policies", "Financial policies"],
             ["/owner/approvals", "Approval center"],
             ["/owner/team", "Team & permissions"],
+            ["/owner/purchases", "Purchases & integrations"],
             ["/owner/profitability", "Project profitability"],
             ["/owner/ai", "AI Administration"],
             ["/owner/operations", "Project operations"],

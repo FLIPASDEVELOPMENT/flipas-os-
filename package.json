@@ -35,7 +35,11 @@
     "test:operations:mobile": "tsx tests/operations.mobile.mjs",
     "test:team": "tsx --test tests/team.integration.ts",
     "test:team:http": "tsx tests/team.http.ts",
-    "test:team:local": "node scripts/test-operations-local.mjs team"
+    "test:team:local": "node scripts/test-operations-local.mjs team",
+    "test:purchases": "tsx --test tests/purchases.integration.ts",
+    "test:purchases:local": "node scripts/test-operations-local.mjs purchases",
+    "test:purchases:http": "tsx tests/purchases.http.ts",
+    "test:purchases:mobile": "tsx tests/purchases.mobile.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",

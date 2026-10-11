@@ -10,6 +10,8 @@ Next.js 16.4 App Router + TypeScript + Tailwind 4, PostgreSQL 17 and Prisma 7.10
 
 Read [architecture](docs/ARCHITECTURE.md), [data model](docs/DATA_MODEL.md) and [roadmap](docs/ROADMAP.md). Source lives in `src/app`, `src/components`, `src/domain`, `src/server`, `src/ai`; schema/migrations/provisioning live in `prisma`; repeatable tooling lives in `scripts`.
 
+Phase 5A adds OWNER-only normalized CSV purchases, versioned manual review, explicit approval and idempotent actual-cost recognition. See [Phase 5A audit, limitations, tests and safe macOS update/backup instructions](docs/PHASE_5A.md). Purchasing AI and external accounting/provider connectors remain unimplemented and disabled.
+
 ## Local development
 
 Requires Node.js 24, npm, Docker and Docker Compose. Use the existing isolated checkout; no worktree is needed.
