@@ -17,6 +17,7 @@ export async function projectList(u: User) {
       estimatedCompletionDate: true,
       actualCompletionDate: true,
       projectAddress: true,
+      identity: { select: { code: true, name: true } },
       customer: { select: { firstName: true, lastName: true } },
       projectManager: { select: { name: true } },
       _count: { select: { tasks: true } },
@@ -89,6 +90,7 @@ export async function workspace(u: User, projectId: string) {
         estimatedCompletionDate: true,
         actualCompletionDate: true,
         projectManagerId: true,
+        identity: { select: { code: true, name: true } },
         customer: { select: { firstName: true, lastName: true } },
         opportunity: { select: { id: true, stage: true } },
         estimate: {

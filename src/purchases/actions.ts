@@ -11,7 +11,27 @@ import {
   approvePurchase,
   rejectPurchase,
 } from "./service";
+import {
+  suggestPurchase,
+  suggestBatch,
+  rejectSuggestion,
+  abandonSuggestion,
+} from "./classification-service";
 const messages: Record<string, string> = {
+  AI_PAUSED:
+    "AI is paused. OWNER must review AI Administration; no cost was recorded.",
+  PROCESSING_DISABLED:
+    "AI processing is disabled in AI Administration. Email Emergency Pause is a separate control and stays unchanged.",
+  AI_CONFIG_REQUIRED:
+    "The existing private OpenAI model and verified pricing configuration is required.",
+  AI_BUDGET_LIMIT:
+    "Shared monthly AI budget reached or insufficient for the reserved request. No automatic retry.",
+  AI_EMAIL_LIMIT:
+    "Four classification requests already exist for this purchase. Review the preserved suggestions manually; counters are not reset.",
+  CLASSIFICATION_RUNNING:
+    "A classification is running or its result is uncertain. Do not retry with a new key; inspect its history.",
+  CLASSIFICATION_CONTEXT_LIMIT:
+    "Classification supports at most 20 lines and 100 projects per request. Review this purchase manually.",
   FILE_LIMIT: "CSV must be nonempty and at most 1 MB.",
   CSV_COLUMNS:
     "Use a Home Depot Pro Xtra Purchase Tracking export or the documented normalized CSV, with at most 500 data rows.",
@@ -24,6 +44,8 @@ const messages: Record<string, string> = {
   STALE_VERSION:
     "The review changed. Reload and approve its exact current version.",
   PURCHASE_FINAL: "This purchase is finalized and cannot be edited or deleted.",
+  DUPLICATE_PENDING:
+    "Another pending import has the same receipt identity. OWNER must inspect and reject the duplicate with a reason before approving; no automatic merging.",
   DUPLICATE_EVIDENCE:
     "Another approved import has the same vendor, receipt and date. Review the duplicate; do not record it again.",
   EXISTING_RECEIPT_COST:
@@ -52,7 +74,45 @@ export async function purchaseAction(form: FormData) {
   try {
     const op = form.get("operation"),
       version = Number(form.get("version"));
-    if (op === "bulk") {
+    if (op === "abandon-suggestion") {
+      await abandonSuggestion(
+        u,
+        id,
+        String(form.get("suggestionId")),
+        String(form.get("reason")),
+      );
+      notice =
+        "Interrupted job closed; budget reservations and counters preserved. No automatic retry.";
+    } else if (op === "reject-suggestion") {
+      await rejectSuggestion(
+        u,
+        id,
+        version,
+        String(form.get("suggestionId")),
+        String(form.get("reason")),
+      );
+      notice =
+        "Suggestion rejected and preserved in history. Purchase remains pending; costs unchanged.";
+    } else if (op === "suggest") {
+      const job = await suggestPurchase(
+        u,
+        id,
+        version,
+        String(form.get("requestKey")),
+      );
+      notice = `Suggestion ${job.state}. ${job.errorCode ?? "Review its evidence below; no review or costs were saved."}`;
+    } else if (op === "suggest-batch") {
+      const jobs = await suggestBatch(
+        u,
+        form.getAll("suggestions").map((v) => JSON.parse(String(v))),
+      );
+      notice = jobs
+        .map(
+          (j) =>
+            `${j.id}: ${j.state}${j.errorCode ? " (" + j.errorCode + ")" : ""}`,
+        )
+        .join("; ");
+    } else if (op === "bulk") {
       const result = await approveBatch(
         u,
         form.getAll("reviews").map((v) => JSON.parse(String(v))),
@@ -87,6 +147,7 @@ export async function purchaseAction(form: FormData) {
         version,
         JSON.parse(String(form.get("allocations"))),
         String(form.get("reason")),
+        String(form.get("suggestionId") ?? "") || undefined,
       );
     else if (op === "approve")
       await approvePurchase(u, id, version, form.get("confirmation") === "on");

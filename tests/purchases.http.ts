@@ -74,6 +74,8 @@ async function main() {
       "/owner/purchases",
       "/owner/purchases/reports",
       "/owner/purchases/batch",
+      "/owner/purchases/projects",
+      "/owner/purchases/classify",
       "/owner/purchases/" + p.id,
       "/owner/purchases/imports/" + result.documentId,
     ]) {

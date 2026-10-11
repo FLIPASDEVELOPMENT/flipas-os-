@@ -25,6 +25,10 @@ export default async function Purchases({
         <Link href="/owner/purchases/batch">
           Review multiple saved classifications
         </Link>
+        <Link href="/owner/purchases/projects">Project codes & aliases</Link>
+        <Link href="/owner/purchases/classify">
+          Suggest classifications in a bounded batch
+        </Link>
         <Link href="/owner/purchases/reports">Approved expense reports</Link>
         <Link href="/owner/profitability">Project profitability</Link>
       </nav>
@@ -54,9 +58,10 @@ export default async function Purchases({
           connectors.
         </p>
         <p>
-          Home Depot API, Lowe&apos;s API, Intuit OAuth and AI classification:
-          NOT CONFIGURED / DISABLED. No external synchronization has been tested
-          or enabled.
+          Home Depot API, Lowe&apos;s API and Intuit OAuth: NOT CONFIGURED /
+          DISABLED. Classification uses the existing AI Administration provider,
+          pause and shared budget. No automatic synchronization or accounting
+          writes.
         </p>
       </section>
       <h2>Purchase Inbox — latest 200</h2>

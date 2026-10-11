@@ -77,7 +77,9 @@ export default async function Page({
     <>
       <Link href="/projects">← Projects</Link>
       <h1>
-        {w.project.customer.firstName} {w.project.customer.lastName}
+        {w.project.identity
+          ? `${w.project.identity.code} · ${w.project.identity.name}`
+          : `${w.project.customer.firstName} ${w.project.customer.lastName}`}
       </h1>
       <p>
         {w.project.state} ·{" "}

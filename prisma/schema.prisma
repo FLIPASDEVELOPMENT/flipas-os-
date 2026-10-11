@@ -323,6 +323,7 @@ model EstimateLineItem {
  overriddenBy User? @relation(fields: [overriddenById], references: [id])
 }
 model Project {
+ identity ProjectIdentity?
  operationsVersion Int @default(0)
  originalScopeSnapshot Json @default("{}")
  projectAddress String @default("")
@@ -984,11 +985,14 @@ model ImportedPurchase {
  approvedVersion Int?
  approvedById String?
  approvedAt DateTime?
+ suggestions PurchaseSuggestion[]
  reviews PurchaseReview[]
  postings PurchasePosting[]
  @@index([evidenceKey])
 }
 model PurchaseReview {
+ suggestionId String?
+ suggestion PurchaseSuggestion? @relation(fields:[suggestionId],references:[id])
  id String @id @default(cuid())
  createdAt DateTime @default(now())
  purchaseId String
@@ -1013,4 +1017,54 @@ model PurchasePosting {
  category String
  costType String
  @@unique([purchaseId,allocationIndex])
+}
+
+model ProjectIdentity {
+ projectId String @id
+ project Project @relation(fields:[projectId],references:[id])
+ number BigInt @unique @default(dbgenerated("nextval('project_code_number'::regclass)"))
+ code String @unique
+ name String
+ createdAt DateTime @default(now())
+ aliases ProjectAlias[]
+}
+model ProjectAlias {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ projectId String
+ identity ProjectIdentity @relation(fields:[projectId],references:[projectId])
+ alias String
+ normalized String
+ @@unique([projectId,normalized])
+ confirmedById String
+ reason String
+}
+model PurchaseSuggestion {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ completedAt DateTime?
+ purchaseId String
+ purchase ImportedPurchase @relation(fields:[purchaseId],references:[id])
+ requestKey String
+ baseVersion Int
+ createdById String
+ state String @default("RUNNING")
+ provider String @default("RULES")
+ model String @default("purchase-classifier-v1")
+ input Json
+ result Json?
+ errorCode String?
+ decisions PurchaseSuggestionDecision[]
+ reviews PurchaseReview[]
+ @@unique([purchaseId,requestKey])
+ @@index([purchaseId,createdAt])
+}
+
+model PurchaseSuggestionDecision {
+ id String @id @default(cuid())
+ createdAt DateTime @default(now())
+ suggestionId String @unique
+ suggestion PurchaseSuggestion @relation(fields:[suggestionId],references:[id])
+ actorId String
+ reason String
 }

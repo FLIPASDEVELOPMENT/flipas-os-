@@ -11,12 +11,14 @@ type Project = {
 };
 export function ReviewForm({
   purchaseId,
+  suggestionId,
   version,
   initial,
   projects,
   lines,
 }: {
   purchaseId: string;
+  suggestionId?: string;
   version: number;
   initial: Allocations;
   projects: Project[];
@@ -54,6 +56,7 @@ export function ReviewForm({
       <input type="hidden" name="operation" value="review" />
       <input type="hidden" name="purchaseId" value={purchaseId} />
       <input type="hidden" name="version" value={version} />
+      <input type="hidden" name="suggestionId" value={suggestionId ?? ""} />
       <input
         type="hidden"
         name="allocations"

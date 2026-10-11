@@ -54,18 +54,16 @@ try {
     const before = await db.importedPurchase.count(),
       costs = await db.projectCostEntry.count();
     await page.goto(base + "/owner/purchases");
-    await page
-      .locator('input[type="file"]')
-      .setInputFiles({
-        name: "native.csv",
-        mimeType: "text/csv",
-        buffer: readFileSync(
-          new URL(
-            "../docs/examples/home-depot-pro-xtra-synthetic.csv",
-            import.meta.url,
-          ),
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "native.csv",
+      mimeType: "text/csv",
+      buffer: readFileSync(
+        new URL(
+          "../docs/examples/home-depot-pro-xtra-synthetic.csv",
+          import.meta.url,
         ),
-      });
+      ),
+    });
     await page.getByRole("button", { name: "Preview CSV import" }).click();
     await page.waitForURL(/\/owner\/purchases\/imports\//);
     assert.ok(
@@ -91,6 +89,65 @@ try {
     assert.equal(await db.projectCostEntry.count(), costs);
     console.log(
       "Home Depot browser PASS: upload → preview → explicit confirmation; returns blocked; zero costs",
+    );
+    await context.close();
+  }
+  // Phase 5B UI flow, simulated provider only; never approve or create costs.
+  await db.salesAISettings.upsert({
+    where: { id: "company" },
+    create: { id: "company", processingEnabled: true, aiProvider: "MOCK" },
+    update: { processingEnabled: true, aiProvider: "MOCK", aiPaused: false },
+  });
+  {
+    const context = await browser.newContext({
+      viewport: { width: 430, height: 850 },
+    });
+    await context.addCookies([
+      { name: "flipas_session", value: token, url: base },
+    ]);
+    const page = await context.newPage(),
+      costs = await db.projectCostEntry.count();
+    await page.goto(base + "/owner/purchases/" + purchase.id);
+    await page
+      .getByRole("button", { name: "Suggest classification with AI" })
+      .click();
+    await page.waitForURL(/notice=/);
+    const job = await db.purchaseSuggestion.findFirstOrThrow({
+      where: { purchaseId: purchase.id },
+    });
+    assert.equal(job.state, "GENERATED");
+    assert.ok((await page.locator("body").innerText()).includes("MOCK"));
+    await page
+      .getByRole("link", { name: /Use this suggestion in the review form/ })
+      .click();
+    await page.waitForURL(/suggestion=/);
+    assert.equal(
+      await page.locator('input[name="suggestionId"]').first().inputValue(),
+      job.id,
+    );
+    assert.equal(
+      await db.purchasePosting.count({ where: { purchaseId: purchase.id } }),
+      0,
+    );
+    assert.equal(await db.projectCostEntry.count(), costs);
+    for (const width of [375, 390, 430, 1280]) {
+      await page.setViewportSize({ width, height: 850 });
+      for (const path of [
+        "/owner/purchases/projects",
+        "/owner/purchases/classify",
+        "/owner/purchases/" + purchase.id,
+      ]) {
+        await page.goto(base + path);
+        assert.ok(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+          ),
+          "5B no overflow " + path + " at " + width,
+        );
+      }
+    }
+    console.log(
+      "Phase 5B browser PASS: MOCK suggestion → explicit form proposal; no posting; codebook/batch/suggestions at 375,390,430,1280px",
     );
     await context.close();
   }

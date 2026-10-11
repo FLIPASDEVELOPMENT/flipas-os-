@@ -1,3 +1,11 @@
+import {
+  suggestionHistory,
+  newSuggestionKey,
+} from "@/purchases/classification-service";
+import {
+  proposedAllocations,
+  suggestionSchema,
+} from "@/purchases/classification";
 import Link from "next/link";
 import Decimal from "decimal.js";
 import { requireOwner } from "@/owner/auth";
@@ -12,14 +20,22 @@ export default async function Purchase({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ notice?: string }>;
+  searchParams: Promise<{ notice?: string; suggestion?: string }>;
 }) {
   const u = await requireOwner(),
     { id } = await params,
     p = await purchaseData(u, id);
   if (Array.isArray(p)) throw new Error("Invalid purchase");
   const d = p.original as unknown as PurchaseData,
-    { notice } = await searchParams;
+    { notice, suggestion } = await searchParams;
+  const suggestions = await suggestionHistory(u, id);
+  const chosen = suggestions.find(
+    (s) =>
+      s.id === suggestion &&
+      s.state === "GENERATED" &&
+      !s.decisions.length &&
+      s.baseVersion === p.headVersion,
+  );
   const duplicates = await db.importedPurchase.findMany({
     where: { evidenceKey: p.evidenceKey, id: { not: id } },
     select: { id: true, status: true },
@@ -27,6 +43,7 @@ export default async function Purchase({
   const projects = await db.project.findMany({
     select: {
       id: true,
+      identity: { select: { code: true, name: true } },
       customer: { select: { firstName: true, lastName: true } },
       estimate: {
         select: {
@@ -37,14 +54,17 @@ export default async function Purchase({
     orderBy: { createdAt: "desc" },
   });
   const head = p.reviews[0];
-  const initial = head
-    ? (head.allocations as Allocations)
-    : d.lines.map((l) => ({
-        lineId: l.line_id,
-        amount: l.line_total,
-        category: "Other" as const,
-        costType: "MATERIAL" as const,
-      }));
+  const initial =
+    chosen && chosen.result
+      ? proposedAllocations(suggestionSchema.parse(chosen.result), d)
+      : head
+        ? (head.allocations as Allocations)
+        : d.lines.map((l) => ({
+            lineId: l.line_id,
+            amount: l.line_total,
+            category: "Other" as const,
+            costType: "MATERIAL" as const,
+          }));
   const final = ["APPROVED", "REJECTED"].includes(p.status);
   const blocked = Boolean(d.native?.blockedReasons.length);
   return (
@@ -69,8 +89,8 @@ export default async function Purchase({
           {d.header.store || "Unknown"}
         </p>
         <p>
-          No AI suggestion in 5A. Project and category require OWNER
-          classification.
+          AI and deterministic suggestions require OWNER review. No cost is
+          recorded until the exact saved review is approved.
         </p>
         <Link href={`/api/owner/purchases/documents/${p.documentId}`}>
           Download original CSV evidence as plain text
@@ -83,8 +103,9 @@ export default async function Purchase({
                 {x.id} ({x.status}){" "}
               </Link>
             ))}
-            . Approval is blocked if another matching receipt is already
-            approved.
+            . Approval is blocked while a matching import is pending or
+            approved. Review the originals and reject a pending duplicate with a
+            reason before proceeding.
           </p>
         )}
       </section>
@@ -133,11 +154,162 @@ export default async function Purchase({
           </section>
         ))}
       </div>
+      <section className="panel">
+        <h2>Classification suggestions</h2>
+        <p>
+          At most four requests per purchase. Itemized AI requests share the
+          existing monthly budget; summaries use rules without a provider call.
+          Every result requires human review.
+        </p>
+        {!final && !blocked && (
+          <form action={purchaseAction}>
+            <input type="hidden" name="operation" value="suggest" />
+            <input type="hidden" name="purchaseId" value={id} />
+            <input type="hidden" name="version" value={p.headVersion} />
+            <input type="hidden" name="requestKey" value={newSuggestionKey()} />
+            <Submit>Suggest classification with AI</Submit>
+          </form>
+        )}
+        {suggestions.map((s) => (
+          <article key={s.id}>
+            <h3>
+              {s.state} · {s.provider} · {s.model}
+            </h3>
+            <p>
+              {s.createdAt.toISOString()} · Requested by {s.createdById} ·
+              Review version {s.baseVersion}
+            </p>
+            {s.matchingCandidates.length > 0 && (
+              <p>
+                Matching evidence: {s.matchingMethod} ·{" "}
+                {s.matchingCandidates
+                  .map((c) => `${c.code} · ${c.name}`)
+                  .join("; ")}
+                . Name candidates and conflicts require OWNER confirmation; no
+                automatic expense assignment.
+              </p>
+            )}
+            {s.errorCode && (
+              <p role="alert">
+                {s.errorCode}. No costs were recorded. Check AI Administration
+                diagnostics. A new request is never made automatically.
+              </p>
+            )}
+            {s.state === "RUNNING" && (
+              <p>
+                Running or uncertain after interruption. No automatic retries.
+                This request key remains reserved; review manually if it does
+                not finish.
+              </p>
+            )}
+            {s.canAbandon && (
+              <details>
+                <summary>
+                  Close interrupted request (no automatic retry)
+                </summary>
+                <form action={purchaseAction}>
+                  <input
+                    type="hidden"
+                    name="operation"
+                    value="abandon-suggestion"
+                  />
+                  <input type="hidden" name="purchaseId" value={id} />
+                  <input type="hidden" name="suggestionId" value={s.id} />
+                  <label>
+                    Reason
+                    <input name="reason" required minLength={5} />
+                  </label>
+                  <Submit>
+                    Close request; preserve counters and reserved costs
+                  </Submit>
+                </form>
+              </details>
+            )}
+            {s.result &&
+              suggestionSchema.parse(s.result).lines.map((l) => (
+                <div key={l.lineId}>
+                  <p>
+                    Line {l.lineId} · Project{" "}
+                    {l.projectId ?? "Unknown / review required"} · Category{" "}
+                    {l.category ?? "Unknown"} · {l.costType} · Confidence{" "}
+                    {Math.round(l.confidence * 100)}%
+                  </p>
+                  <p>
+                    Original estimate line:{" "}
+                    {projects
+                      .flatMap((p) =>
+                        p.estimate.sections.flatMap((s) => s.lines),
+                      )
+                      .find((x) => x.id === l.estimateLineId)?.name ??
+                      "Unknown / not allocated"}{" "}
+                    · Possible company overhead:{" "}
+                    {l.overhead
+                      ? "Yes — OWNER review required"
+                      : "Not asserted"}
+                  </p>
+                  <p>{l.explanation}</p>
+                  {l.evidence.map((e, i) => (
+                    <p key={i}>
+                      {e.field}: “{e.quote}”
+                    </p>
+                  ))}
+                </div>
+              ))}
+            {s.state === "GENERATED" &&
+              !s.decisions.length &&
+              s.baseVersion === p.headVersion &&
+              !final &&
+              !blocked && (
+                <Link href={`/owner/purchases/${id}?suggestion=${s.id}`}>
+                  Use this suggestion in the review form (does not save or
+                  approve)
+                </Link>
+              )}
+            {s.decisions.map((dec) => (
+              <p key={dec.id}>
+                Rejected suggestion · {dec.actorId} ·{" "}
+                {dec.createdAt.toISOString()} · {dec.reason}
+              </p>
+            ))}
+            {s.state === "GENERATED" &&
+              !s.decisions.length &&
+              s.baseVersion === p.headVersion &&
+              !final && (
+                <details>
+                  <summary>Reject suggestion only</summary>
+                  <form action={purchaseAction}>
+                    <input
+                      type="hidden"
+                      name="operation"
+                      value="reject-suggestion"
+                    />
+                    <input type="hidden" name="purchaseId" value={id} />
+                    <input type="hidden" name="version" value={p.headVersion} />
+                    <input type="hidden" name="suggestionId" value={s.id} />
+                    <label>
+                      Reason
+                      <input name="reason" required minLength={5} />
+                    </label>
+                    <Submit>Reject suggestion; keep purchase pending</Submit>
+                  </form>
+                </details>
+              )}
+            {s.reviews.map((r) => (
+              <p key={r.version}>
+                OWNER review/correction v{r.version} · {r.createdById} ·{" "}
+                {r.createdAt.toISOString()} · {r.reason}
+              </p>
+            ))}
+          </article>
+        ))}
+      </section>
       {!final && !blocked && (
         <section className="panel">
           <h2>Manual classification and splits</h2>
           <ReviewForm
+            key={chosen?.id ?? "manual"}
             purchaseId={id}
+            suggestionId={chosen?.id}
             version={p.headVersion}
             initial={initial}
             lines={d.lines.map((l) => ({
@@ -146,7 +318,9 @@ export default async function Purchase({
             }))}
             projects={projects.map((x) => ({
               id: x.id,
-              name: x.customer.firstName + " " + x.customer.lastName,
+              name: x.identity
+                ? `${x.identity.code} · ${x.identity.name}`
+                : x.customer.firstName + " " + x.customer.lastName,
               lines: x.estimate.sections.flatMap((s) => s.lines),
             }))}
           />

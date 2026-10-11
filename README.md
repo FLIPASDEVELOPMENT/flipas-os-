@@ -186,3 +186,5 @@ Project UX, exact handoff diagnostics and explicit versioned-template updates: [
 PostgreSQL transaction concurrency correction and local regression procedure: [POSTGRES_TRANSACTION_SERIALIZATION.md](docs/POSTGRES_TRANSACTION_SERIALIZATION.md).
 
 Mobile project navigation, field task actions and browser validation: [PHASE_4_MOBILE_UX.md](docs/PHASE_4_MOBILE_UX.md).
+
+Phase 5B: [purchase AI suggestions, permanent project codes, supervised examples and safe Mac migration](docs/PHASE_5B.md). OWNER approval remains separate from suggestions; Home Depot summaries cannot infer item details.

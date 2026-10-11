@@ -15,7 +15,9 @@ export default async function Page() {
           <article className="panel" key={p.id}>
             <h2>
               <Link href={`/projects/${p.id}`}>
-                {p.customer.firstName} {p.customer.lastName}
+                {p.identity
+                  ? `${p.identity.code} · ${p.identity.name}`
+                  : `${p.customer.firstName} ${p.customer.lastName}`}
               </Link>
             </h2>
             <p>
@@ -30,7 +32,8 @@ export default async function Page() {
             {p.nextTasks.map((t) => (
               <p key={t.id}>
                 {t.title} ·{" "}
-                {t.dueAt?.toLocaleDateString("en-US") ?? "Unscheduled"} · {t.assigneeName ?? "Unassigned"}
+                {t.dueAt?.toLocaleDateString("en-US") ?? "Unscheduled"} ·{" "}
+                {t.assigneeName ?? "Unassigned"}
               </p>
             ))}
             <p>{p.projectAddress || "Address not configured"}</p>

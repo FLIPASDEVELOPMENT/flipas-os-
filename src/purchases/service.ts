@@ -20,14 +20,14 @@ function canonical(value: unknown) {
 }
 const json = (v: unknown) =>
   JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue;
-async function owner(tx: TX, u: User) {
+export async function owner(tx: TX, u: User) {
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(84651001)::text`;
   await tx.$queryRaw`SELECT id FROM "User" WHERE id=${u.id} FOR NO KEY UPDATE`;
   const actor = await tx.user.findUnique({ where: { id: u.id } });
   if (!actor?.active || actor.role !== "OWNER" || actor.passwordChangeRequired)
     throw new Error("ACCESS_DENIED");
 }
-async function audit(
+export async function audit(
   tx: TX,
   u: User,
   type: string,
@@ -128,6 +128,7 @@ export async function reviewPurchase(
   expectedVersion: number,
   input: unknown,
   reason: string,
+  suggestionId?: string,
 ) {
   z.string().trim().min(5).max(1000).parse(reason);
   z.number().int().nonnegative().parse(expectedVersion);
@@ -139,6 +140,24 @@ export async function reviewPurchase(
     if (["APPROVED", "REJECTED"].includes(p.status))
       throw new Error("PURCHASE_FINAL");
     if (p.headVersion !== expectedVersion) throw new Error("STALE_VERSION");
+    if (suggestionId) {
+      const suggestion = await tx.purchaseSuggestion.findUnique({
+        where: { id: suggestionId },
+      });
+      if (
+        await tx.purchaseSuggestionDecision.findUnique({
+          where: { suggestionId },
+        })
+      )
+        throw new Error("STALE_VERSION");
+      if (
+        !suggestion ||
+        suggestion.purchaseId !== id ||
+        suggestion.state !== "GENERATED" ||
+        suggestion.baseVersion !== expectedVersion
+      )
+        throw new Error("STALE_VERSION");
+    }
     const allocations = validateDistribution(
       p.original as unknown as PurchaseData,
       input,
@@ -147,6 +166,7 @@ export async function reviewPurchase(
     const review = await tx.purchaseReview.create({
       data: {
         purchaseId: id,
+        suggestionId,
         version: p.headVersion + 1,
         allocations: json(allocations),
         reason,
@@ -159,6 +179,7 @@ export async function reviewPurchase(
     });
     await audit(tx, u, "PURCHASE_REVIEW_SAVED", id, {
       version: review.version,
+      suggestionId: suggestionId ?? null,
       reason,
       allocations,
     });
@@ -195,6 +216,16 @@ export async function approvePurchase(
         })
       )
         throw new Error("DUPLICATE_EVIDENCE");
+      if (
+        await tx.importedPurchase.count({
+          where: {
+            evidenceKey: p.evidenceKey,
+            id: { not: id },
+            status: { in: ["IMPORTED", "NEEDS_REVIEW"] },
+          },
+        })
+      )
+        throw new Error("DUPLICATE_PENDING");
       const review = await tx.purchaseReview.findUniqueOrThrow({
         where: { purchaseId_version: { purchaseId: id, version } },
       });
